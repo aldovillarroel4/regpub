@@ -1,251 +1,167 @@
+<!doctype html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASIGNACIONES - Tabla de Asignaciones</title>
-    <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Registro de Personas</title>
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Import map (ready if later you add ESM libs) -->
+  <script type="importmap">
+  {
+    "imports": {
+    }
+  }
+  </script>
 </head>
 <body>
-    <div class="app-container">
-        <header class="header">
-            <h1 class="app-title">
-                <i class="fas fa-table"></i>
-                ASIGNACIONES OESTE
-            </h1>
-            <div class="header-controls">
-                <div class="search-container">
-                    <i class="fas fa-search"></i>
-                    <input type="text" id="searchInput" placeholder="Buscar por nombre, privilegio o designación...">
-                </div>
-                <button class="btn btn-primary" onclick="openAddModal()">
-                    <i class="fas fa-plus"></i>
-                    Agregar
-                </button>
-                <button class="btn btn-secondary" onclick="exportTable()">
-                    <i class="fas fa-download"></i>
-                    Respaldar
-                </button>
-                <input type="file" id="fileInput" accept=".json" style="display: none;" onchange="importTable(event)">
-                <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">
-                    <i class="fas fa-upload"></i>
-                    Cargar
-                </button>
-            </div>
-        </header>
+  <div id="app">
+    <div class="banner" role="banner">
+      <div class="banner-title">REGISTRO DE PUBLICADORES - CONGREGACIÓN OESTE</div>
+      <div class="banner-controls" style="position:relative;">
+      <div style="position:relative;">
+        <button id="backupBtn" class="icon-btn" aria-haspopup="true" aria-expanded="false" title="Respaldo">Respaldo ▾</button>
 
-        <div class="table-container">
-            <table id="asignacionesTable" class="data-table">
-                <thead>
-                    <tr>
-                        <th onclick="sortTable(0)">NOMBRE <i class="fas fa-sort"></i></th>
-                        <th onclick="sortTable(1)">PRIVILEGIO <i class="fas fa-sort"></i></th>
-                        <th onclick="sortTable(2)">DESIGNACION <i class="fas fa-sort"></i></th>
-                        <th onclick="sortTable(3)">SUP / DEPTO <i class="fas fa-sort"></i></th>
-                        <th title="Conductor de Grupos de Servicio">C.G.S.</th>
-                        <th title="Audio">AUD</th>
-                        <th title="Video">VID</th>
-                        <th title="Microfono">MIC</th>
-                        <th title="Atención de Plataforma">ATP</th>
-                        <th title="Acomodador">ACO</th>
-                        <th title="Portero">PUE</th>
-                        <th title="Presidente Reunión Vida y Ministerio Cristianos">PRE. E.S.</th>
-                        <th title="Discurso Tesoros de la Biblia">T.D.B.</th>
-                        <th title="Perlas Escondidas">PE. E.</th>
-                        <th title="Nuestra Vida Cristiana">N.V.C.</th>
-                        <th title="Lectura de Libro">L. LIB.</th>
-                        <th title="Estudio Bíblico Cong.">E.B.C.</th>
-                        <th title="Oración">ORA</th>
-                        <th title="Presidente Reunión Fin de Semana">PRE. F.S.</th>
-                        <th title="Lectura Atalaya">L. ATA.</th>
-                        <th title="Discurso Publico">D. PUB.</th>
-                        <th title="Discurso Publico Fuera">D. PUB. F.</th>
-                        <th>ULTIMAS ASIGNACIONES</th>
-                        <th>ACCIONES</th>
-                    </tr>
-                </thead>
-                <tbody id="tableBody">
-                    <!-- Los datos se cargarán dinámicamente -->
-                </tbody>
-            </table>
+        <!-- simple dropdown menu for backup actions -->
+        <div id="backupMenu" class="hidden" role="menu" aria-label="Respaldo" style="position:absolute; right:0; top:calc(100% + 8px); background:#fff; border:1px solid #e6e9ee; border-radius:8px; box-shadow:0 8px 24px rgba(10,12,15,0.12); padding:8px; z-index:1000; min-width:160px;">
+          <button id="exportBtn" title="Exportar registro" class="icon-btn" style="display:block; width:100%; text-align:left; padding:8px 10px;">Exportar</button>
+          <button id="importBtn" title="Importar registro" class="icon-btn" style="display:block; width:100%; text-align:left; padding:8px 10px;">Importar</button>
         </div>
+      </div>
+      <input id="importFile" type="file" accept=".json" class="hidden" />
+    </div>
+    </div>
+    <div class="toolbar">
+      <button id="addPersonBtn" class="primary">Agregar Persona</button>
+      <button id="registroBtn" class="secondary">Registro</button>
+      <button id="actividadBtn" class="secondary">Actividad</button>
+      <div class="spacer"></div>
 
-        <!-- Modal para agregar/editar -->
-        <div id="modal" class="modal">
-            <div class="modal-content">
-                <span class="close" onclick="closeModal()">&times;</span>
-                <h2 id="modalTitle">Agregar Nueva Asignación</h2>
-                <form id="asignacionForm">
-                    <!-- Información Personal -->
-                    <div class="form-section">
-                        <h3 class="section-title">Información Personal</h3>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label>NOMBRE</label>
-                                <input type="text" name="nombre" required>
-                            </div>
-                            <div class="form-group">
-                                <label>PRIVILEGIO</label>
-                                <select name="privilegio" required>
-                                    <option value="">Seleccionar...</option>
-                                    <option value="Anciano">Anciano</option>
-                                    <option value="S. Ministerial">S. Ministerial</option>
-                                    <option value="Publicador">Publicador</option>
-                                    <option value="Pub. No Bautizado">Pub. No Bautizado</option>
-                                    <option value="No Asignar">No Asignar</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>DESIGNACION</label>
-                                <select name="designacion">
-                                    <option value="">Seleccionar...</option>
-                                    <option value="Precursor Auxiliar">Precursor Auxiliar</option>
-                                    <option value="Precursor Regular">Precursor Regular</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>SUP / DEPTO</label>
-                                <select name="sup_depto">
-                                    <option value="">Seleccionar...</option>
-                                    <option value="Coordinador">Coordinador</option>
-                                    <option value="Secretario">Secretario</option>
-                                    <option value="S. Servicios">S. Servicios</option>
-                                    <option value="Vida y Ministerio">Vida y Ministerio</option>
-                                    <option value="Atalaya">Atalaya</option>
-                                    <option value="Consejero Aux.">Consejero Aux.</option>
-                                    <option value="Aux. Vida y Ministerio">Aux. Vida y Ministerio</option>
-                                    <option value="Publicaciones">Publicaciones</option>
-                                    <option value="Territorios">Territorios</option>
-                                    <option value="Audio-Video">Audio-Video</option>
-                                    <option value="Exhibidor">Exhibidor</option>
-                                    <option value="Literatura">Literatura</option>
-                                    <option value="Contabilidad">Contabilidad</option>
-                                    <option value="Aux. Contabilidad">Aux. Contabilidad</option>
-                                    <option value="Aseo / Mantenimiento">Aseo / Mantenimiento</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Asignaciones de Salón -->
-                    <div class="form-section">
-                        <h3 class="section-title">Asignaciones de Salón</h3>
-                        <div class="form-grid">
-                            <div class="form-group checkbox-group">
-                                <label>C.G.S. (Conductor de Grupos de Servicio)</label>
-                                <input type="checkbox" name="cgs">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>AUD (Audio)</label>
-                                <input type="checkbox" name="aud">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>VID (Video)</label>
-                                <input type="checkbox" name="vid">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>MIC (Micrófono)</label>
-                                <input type="checkbox" name="mic">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>ATP (Atención de Plataforma)</label>
-                                <input type="checkbox" name="atp">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>ACO (Acomodador)</label>
-                                <input type="checkbox" name="aco">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>PUE (Portero)</label>
-                                <input type="checkbox" name="pue">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Asignaciones de Reunión Vida y Ministerio -->
-                    <div class="form-section">
-                        <h3 class="section-title">Reunión Vida y Ministerio</h3>
-                        <div class="form-grid">
-                            <div class="form-group checkbox-group">
-                                <label>PRE. E.S. (Presidente)</label>
-                                <input type="checkbox" name="pre_es">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>T.D.B. (Tesoros de la Biblia)</label>
-                                <input type="checkbox" name="tdb">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>PE. E. (Perlas Escondidas)</label>
-                                <input type="checkbox" name="pe_e">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>N.V.C. (Nuestra Vida Cristiana)</label>
-                                <input type="checkbox" name="nvc">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>L. LIB. (Lectura de Libro)</label>
-                                <input type="checkbox" name="l_lib">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>E.B.C. (Estudio Bíblico Cong.)</label>
-                                <input type="checkbox" name="ebc">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>ORA (Oración)</label>
-                                <input type="checkbox" name="ora">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Asignaciones de Fin de Semana -->
-                    <div class="form-section">
-                        <h3 class="section-title">Reunión Fin de Semana</h3>
-                        <div class="form-grid">
-                            <div class="form-group checkbox-group">
-                                <label>PRE. F.S. (Presidente)</label>
-                                <input type="checkbox" name="pre_fs">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>L. ATA. (Lectura Atalaya)</label>
-                                <input type="checkbox" name="l_ata">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>D. PUB. (Discurso Público)</label>
-                                <input type="checkbox" name="d_pub">
-                            </div>
-                            <div class="form-group checkbox-group">
-                                <label>D. PUB. F. (Discurso Público Fuera)</label>
-                                <input type="checkbox" name="d_pub_f">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Información de Asignación -->
-                    <div class="form-section">
-                        <h3 class="section-title">Información de Asignación</h3>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label>ULTIMAS ASIGNACIONES</label>
-                                <input type="text" name="ultima_asignacion">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save"></i>
-                            Guardar
-                        </button>
-                        <button type="button" class="btn btn-secondary" onclick="closeModal()">
-                            Cancelar
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+      <input id="search" placeholder="Buscar..." aria-label="Buscar" />
+      <button id="clearSearchBtn" class="trash-btn" title="Borrar búsqueda" aria-label="Borrar búsqueda">✖</button>
     </div>
 
-    <script src="script.js"></script>
+    <!-- Options bar: shows contextual options depending on active button (currently empty) -->
+    <div class="options-bar" role="toolbar" aria-label="Barra de opciones"></div>
+
+    <div class="table-wrapper" role="region" aria-label="Tabla de registro">
+      <table id="peopleTable" class="grid">
+        <colgroup id="cols">
+          <col style="width:160px" />
+          <col style="width:140px" />
+          <col style="width:160px" />
+          <col style="width:140px" />
+          <col style="width:100px" />
+          <col style="width:110px" />
+          <col style="width:140px" />
+          <col style="width:64px" />
+          <col style="width:64px" />
+          <col style="width:120px" />
+          <col style="width:120px" />
+          <col style="width:220px" />
+          <col style="width:120px" />
+          <col style="width:180px" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Nombre (Cong.)</th>
+            <th>Nombre</th>
+            <th>Apellido Paterno</th>
+            <th>Apellido Materno</th>
+            <th>Grupo</th>
+            <th>Privilegio</th>
+            <th>Designación</th>
+            <th>Sexo</th>
+            <th>Esp</th>
+            <th>Fecha Nacimiento</th>
+            <th>Fecha Bautismo</th>
+            <th>Dirección</th>
+            <th>Teléfono</th>
+            <th>Contacto Emergencia</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Modal/Form -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-content">
+      <header class="modal-header">
+        <h3 id="modalTitle">Agregar Persona</h3>
+        <button id="closeModal" class="icon-btn" aria-label="Cerrar">&times;</button>
+      </header>
+      <form id="personForm" autocomplete="off">
+        <input type="hidden" id="personId" />
+        <div class="form-row">
+          <label>Nombre (Cong.)<input id="congName" name="congName" /></label>
+          <label>Nombre<input id="firstName" name="firstName" required /></label>
+        </div>
+        <div class="form-row">
+          <label>Apellido Paterno<input id="lastNameP" name="lastNameP" required /></label>
+          <label>Apellido Materno<input id="lastNameM" name="lastNameM" /></label>
+        </div>
+        <div class="form-row">
+          <label>Grupo<input id="group" name="group" /></label>
+          <label>Privilegio
+            <select id="privilege" name="privilege">
+              <option value="">-</option>
+              <option value="Publicador">Publicador</option>
+              <option value="P. No Baut.">P. No Baut.</option>
+              <option value="Anciano">Anciano</option>
+              <option value="Siervo Ministerial">Siervo Ministerial</option>
+              <option value="Inactivo">Inactivo</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Designación
+            <select id="designation" name="designation">
+              <option value="">-</option>
+              <option value="Precursor Regular">Precursor Regular</option>
+              <option value="Precursor Auxiliar">Precursor Auxiliar</option>
+              <option value="N/A">N/A</option>
+            </select>
+          </label>
+          <label>Sexo
+            <select id="sex" name="sex">
+              <option value="">-</option>
+              <option value="M">M</option>
+              <option value="F">F</option>
+              <option value="O">Otro</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Esp
+            <select id="esp" name="esp">
+              <option value="">-</option>
+              <option value="O.O.">O.O.</option>
+              <option value="UNG">UNG</option>
+            </select>
+          </label>
+          <label>Fecha Nacimiento<input id="birthDate" name="birthDate" type="date" /></label>
+        </div>
+        <div class="form-row">
+          <label>Fecha Bautismo<input id="baptismDate" name="baptismDate" type="date" /></label>
+        </div>
+        <div class="form-row">
+          <label class="full">Dirección<textarea id="address" name="address" rows="2"></textarea></label>
+        </div>
+        <div class="form-row">
+          <label>Teléfono<input id="phone" name="phone" inputmode="tel" /></label>
+          <label>Contacto Emergencia<input id="emergencyContact" name="emergencyContact" /></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="cancelBtn">Cancelar</button>
+          <button type="submit" class="primary" id="saveBtn">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
 </body>
 </html>
