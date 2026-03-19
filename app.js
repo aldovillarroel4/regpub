@@ -1002,14 +1002,14 @@ tbody.addEventListener('dblclick', (e) => {
       editor.value = current || '';
     } else if(key === 'privilege'){
       editor = document.createElement('select');
-      ['','Publicador','P. No Baut.','Anciano','Siervo Ministerial','Inactivo'].forEach(v => {
+      ['','Publicador','P. No Baut.','Anciano','Siervo Ministerial','Fuera','Inactivo'].forEach(v => {
         const o = document.createElement('option'); o.value = v; o.textContent = v || '-';
         if(String(v) === String(current)) o.selected = true;
         editor.appendChild(o);
       });
     } else if(key === 'designation'){
       editor = document.createElement('select');
-      ['','Precursor Regular','Precursor Auxiliar','N/A'].forEach(v => {
+      ['','Precursor Regular','Precursor Auxiliar','No Asignar','N/A'].forEach(v => {
         const o = document.createElement('option'); o.value = v; o.textContent = v || '-';
         if(String(v) === String(current)) o.selected = true;
         editor.appendChild(o);
