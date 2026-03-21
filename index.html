@@ -30,6 +30,7 @@
         </div>
       </div>
       <input id="importFile" type="file" accept=".json" class="hidden" />
+      <input id="csvFile" type="file" accept=".csv,text/csv" class="hidden" />
     </div>
     </div>
     <div class="toolbar">
@@ -38,8 +39,11 @@
       <button id="actividadBtn" class="secondary">Actividad</button>
       <div class="spacer"></div>
 
-      <input id="search" placeholder="Buscar..." aria-label="Buscar" />
-      <button id="clearSearchBtn" class="trash-btn" title="Borrar búsqueda" aria-label="Borrar búsqueda">✖</button>
+      <div class="search-wrap" style="display:flex;align-items:center;gap:8px;">
+        <div id="totalCount" class="count-badge" aria-hidden="true">0</div>
+        <input id="search" placeholder="Buscar..." aria-label="Buscar" />
+        <button id="clearSearchBtn" class="trash-btn" title="Borrar búsqueda" aria-label="Borrar búsqueda">✖</button>
+      </div>
     </div>
 
     <!-- Options bar: shows contextual options depending on active button (currently empty) -->
@@ -91,7 +95,10 @@
     <div class="modal-content">
       <header class="modal-header">
         <h3 id="modalTitle">Agregar Persona</h3>
-        <button id="closeModal" class="icon-btn" aria-label="Cerrar">&times;</button>
+        <div class="modal-header-actions">
+          <button id="loadBtn" class="secondary load-btn" title="Cargar">Cargar</button>
+          <button id="closeModal" class="icon-btn" aria-label="Cerrar">&times;</button>
+        </div>
       </header>
       <form id="personForm" autocomplete="off">
         <input type="hidden" id="personId" />
@@ -109,7 +116,6 @@
             <select id="privilege" name="privilege">
               <option value="">-</option>
               <option value="Publicador">Publicador</option>
-              <option value="P. No Baut.">P. No Baut.</option>
               <option value="Anciano">Anciano</option>
               <option value="Siervo Ministerial">Siervo Ministerial</option>
               <option value="Fuera">Fuera</option>
@@ -124,15 +130,15 @@
               <option value="Precursor Regular">Precursor Regular</option>
               <option value="Precursor Auxiliar">Precursor Auxiliar</option>
               <option value="No Asignar">No Asignar</option>
+              <option value="No Bautizado">No Bautizado</option>
               <option value="N/A">N/A</option>
             </select>
           </label>
           <label>Sexo
             <select id="sex" name="sex">
               <option value="">-</option>
+              <option value="H">H</option>
               <option value="M">M</option>
-              <option value="F">F</option>
-              <option value="O">Otro</option>
             </select>
           </label>
         </div>
@@ -161,6 +167,76 @@
           <button type="submit" class="primary" id="saveBtn">Guardar</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Floating profile popup (registry detail + last 24 months activity) -->
+  <div id="profilePopup" class="profile-popup hidden" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
+    <div class="profile-popup-content">
+      <header class="profile-popup-header">
+        <h3 id="profileTitle">REGISTRO DE PUBLICADOR DE LA CONGREGACION</h3>
+        <button id="closeProfilePopup" class="icon-btn" aria-label="Cerrar popup">&times;</button>
+      </header>
+      <div class="profile-popup-body">
+        <form id="profileForm" autocomplete="off" onsubmit="return false;">
+          <div class="pp-row">
+            <label>Nombre (Cong.): <input id="pp_congName" readonly /></label>
+            <label>Nombre: <input id="pp_firstName" readonly /></label>
+            <label>Apellido Paterno: <input id="pp_lastNameP" readonly /></label>
+            <label>Apellido Materno: <input id="pp_lastNameM" readonly /></label>
+          </div>
+          <div class="pp-row">
+            <label>Fecha de nacimiento: <input id="pp_birthDate" readonly /></label>
+            <label>Fecha de bautismo: <input id="pp_baptismDate" readonly /></label>
+            <label>Sexo: <input id="pp_sex" readonly /></label>
+          </div>
+          <div class="pp-row">
+            <label>Privilegio: <input id="pp_privilege" readonly /></label>
+            <label>Designación: <input id="pp_designation" readonly /></label>
+            <label>Esp: <input id="pp_esp" readonly /></label>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <h4 style="margin:0;">Actividad - Año de servicio</h4>
+              <div style="color:var(--muted);font-size:13px;">(Septiembre - Agosto)</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <label for="pp_yearSelect" style="font-weight:700;color:var(--muted);margin:0;">Año de servicio:</label>
+              <input id="pp_yearSelect" type="number" min="1900" max="2099" style="padding:6px 8px;border-radius:8px;border:1px solid var(--subtle);background:#fff;color:var(--text);min-width:88px;width:96px;" />
+            </div>
+          </div>
+          <div id="pp_activityTable" class="pp-activity-table" role="region" aria-label="Actividad mensual">
+            <!-- rendered rows: month / participación / cursos / precursor / horas / notas -->
+          </div>
+
+
+
+          <div class="modal-actions" style="justify-content:flex-start;margin-top:12px;">
+            <button type="button" id="pp_close" class="danger">PDF</button>
+            <div id="pp_averages" style="margin-left:12px; display:flex; gap:12px; align-items:center; font-size:13px; color:var(--text);">
+              <div style="background:#fff; border:1px solid var(--subtle); border-radius:8px; padding:8px 10px; min-width:140px; text-align:center;">
+                <div style="font-weight:700; color:var(--muted); font-size:12px;">Promedio cursos</div>
+                <div id="pp_avgCourses" style="font-weight:700; font-size:15px;">0</div>
+              </div>
+              <div style="background:#fff; border:1px solid var(--subtle); border-radius:8px; padding:8px 10px; min-width:140px; text-align:center;">
+                <div style="font-weight:700; color:var(--muted); font-size:12px;">Promedio horas</div>
+                <div id="pp_avgHours" style="font-weight:700; font-size:15px;">0</div>
+              </div>
+              <!-- Meta horas (visible only for Precursor Regular) -->
+              <div id="pp_meta" style="background:#fff; border:1px solid var(--subtle); border-radius:8px; padding:8px 10px; min-width:140px; text-align:center; display:none;">
+                <div style="font-weight:700; color:var(--muted); font-size:12px;">Meta horas</div>
+                <div id="pp_metaHours" style="font-weight:700; font-size:15px;">600</div>
+              </div>
+              <!-- Faltante / Sobrante: Total horas - Meta horas (visible only for Precursor Regular) -->
+              <div id="pp_diffWrap" style="background:#fff; border:1px solid var(--subtle); border-radius:8px; padding:8px 10px; min-width:160px; text-align:center; display:none;">
+                <div style="font-weight:700; color:var(--muted); font-size:12px;">Faltante / Sobrante</div>
+                <div id="pp_diff" style="font-weight:700; font-size:15px;">0</div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 
