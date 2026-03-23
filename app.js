@@ -587,10 +587,13 @@ function render(filter=''){
       }
 
       monthInput.addEventListener('change', (e) => {
-        // save previous month state first
-        const prevMonth = p.activities._lastMonth || e.target.value;
-        saveActivityFor(prevMonth);
-        // switch view to new month value
+        // Only persist the previous month's values when the change was initiated by the user.
+        // Programmatic changes (dispatchEvent from "Seleccionar mes") are not user intent and should only navigate.
+        if (e.isTrusted) {
+          const prevMonth = p.activities._lastMonth || e.target.value;
+          saveActivityFor(prevMonth);
+        }
+        // switch view to new month value and load stored values (navigation only)
         const newM = e.target.value;
         p.activities._lastMonth = newM;
         const act = p.activities[newM] || { aux:false, hours:'', studies:'', comments:'' };
@@ -598,7 +601,8 @@ function render(filter=''){
         if(hours) hours.value = act.hours || '';
         if(studies) studies.value = act.studies || '';
         if(comments) comments.textContent = act.comments || '';
-        save();
+        // persist the selected month but avoid copying DOM values when navigation was programmatic
+        try { save(); } catch (err) {}
       });
 
       aux.addEventListener('change', () => {
