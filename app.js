@@ -379,13 +379,48 @@ function render(filter=''){
         const tr = document.createElement('tr');
         tr.dataset.id = p.id;
         let act = (p.activities && p.activities[monthKey]) ? p.activities[monthKey] : { aux:false, hours:'', studies:'', comments:'' };
-// If the person has designation "Precursor Auxiliar", ensure Aux. Mes is active and persisted
-if (String(p.designation || '').trim() === 'Precursor Auxiliar' && !act.aux) {
-  act = { ...act, aux: true };
-  if(!p.activities) p.activities = {};
-  p.activities[monthKey] = act;
-  save();
-}
+
+        // Determine if there is a "Fin Precursorado Regular" recorded for this person and its month.
+        // If such a finMonth exists, months earlier than finMonth must not be auto-modified.
+        // Determine earliest months marked as 'Fin Precursorado Regular' or 'Inicio Precursorado Regular'
+        let finMonth = '';
+        let startMonth = '';
+        if (p.activities) {
+          for (const k of Object.keys(p.activities)) {
+            if (k === '_lastMonth') continue;
+            const candidate = p.activities[k];
+            const txt = String(candidate && candidate.comments || '').trim();
+            if (txt === 'Fin Precursorado Regular') {
+              if (!finMonth || k < finMonth) finMonth = k;
+            }
+            if (txt === 'Inicio Precursorado Regular') {
+              if (!startMonth || k < startMonth) startMonth = k;
+            }
+          }
+        }
+
+        // Ensure Aux. Mes is active ONLY when hours > 1 for non-Precursor Regular;
+        // if hours is 1 or empty, force aux to false and persist.
+        // IMPORTANT: if this month is earlier than finMonth OR earlier than startMonth, do not auto-modify aux.
+        const isBeforeFin = ((startMonth && monthKey < startMonth) || (finMonth && monthKey < finMonth));
+        if (!isBeforeFin) {
+          if (String(p.designation || '').trim() !== 'Precursor Regular') {
+            const hnum = act.hours === '' ? NaN : Number(act.hours);
+            if (!isNaN(hnum) && hnum > 1) {
+              act.aux = true;
+            } else {
+              // hours === 1 or empty (or non-numeric) => ensure aux is not active
+              act.aux = false;
+            }
+          } else {
+            // Precursor Regular: Aux. Mes must always be false (never auto-activate or preserve a checked state)
+            act.aux = false;
+          }
+        }
+        if (!p.activities) p.activities = {};
+        p.activities[monthKey] = act;
+        save();
+
         tr.innerHTML = `
           <td class="cong-cell">${escapeHtml(p.congName || '')}</td>
           <td><input type="month" class="act-month" value="${escapeHtml(monthKey)}" style="width:100%"/></td>
@@ -395,7 +430,9 @@ if (String(p.designation || '').trim() === 'Precursor Auxiliar' && !act.aux) {
           <td style="text-align:center"><input type="checkbox" class="act-aux" ${act.aux ? 'checked': ''} /></td>
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-hours num-input" value="${escapeHtml(act.hours || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-studies num-input" value="${escapeHtml(act.studies || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
-          <td><div contenteditable="true" class="act-comments" data-placeholder="Comentarios">${escapeHtml(act.comments || '')}</div></td>
+          <td>
+            <div contenteditable="true" class="act-comments" data-placeholder="Comentarios">${escapeHtml(act.comments || '')}<button type="button" class="comment-info" title="Información">i</button></div>
+          </td>
         `;
         tbody.appendChild(tr);
       });
@@ -409,12 +446,20 @@ if (String(p.designation || '').trim() === 'Precursor Auxiliar' && !act.aux) {
         // use last selected month for this person if any, else current month
         const monthKey = p.activities._lastMonth || new Date().toISOString().slice(0,7);
         let act = p.activities[monthKey] || { aux:false, hours:'', studies:'', comments:'' };
-// If the person has designation "Precursor Auxiliar", ensure Aux. Mes is active and persisted
-if (String(p.designation || '').trim() === 'Precursor Auxiliar' && !act.aux) {
-  act = { ...act, aux: true };
-  p.activities[monthKey] = act;
-  save();
-}
+
+        // Ensure Aux. Mes is active ONLY when hours > 1 for non-Precursor Regular;
+        // if hours is 1 or empty, force aux to false and persist.
+        if (String(p.designation || '').trim() !== 'Precursor Regular') {
+          const hnum = act.hours === '' ? NaN : Number(act.hours);
+          if (!isNaN(hnum) && hnum > 1) {
+            act.aux = true;
+          } else {
+            act.aux = false;
+          }
+          if (!p.activities) p.activities = {};
+          p.activities[monthKey] = act;
+          save();
+        }
 
         tr.innerHTML = `
           <td class="cong-cell">${escapeHtml(p.congName || '')}</td>
@@ -425,7 +470,9 @@ if (String(p.designation || '').trim() === 'Precursor Auxiliar' && !act.aux) {
           <td style="text-align:center"><input type="checkbox" class="act-aux" ${act.aux ? 'checked': ''} /></td>
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-hours num-input" value="${escapeHtml(act.hours || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-studies num-input" value="${escapeHtml(act.studies || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
-          <td><div contenteditable="true" class="act-comments" data-placeholder="Comentarios">${escapeHtml(act.comments || '')}</div></td>
+          <td>
+            <div contenteditable="true" class="act-comments" data-placeholder="Comentarios">${escapeHtml(act.comments || '')}<button type="button" class="comment-info" title="Información">i</button></div>
+          </td>
         `;
       } else {
         const bAge = calcAge(p.birthDate);
@@ -487,10 +534,48 @@ if (String(p.designation || '').trim() === 'Precursor Auxiliar' && !act.aux) {
         p.activities._lastMonth = month;
         const cur = p.activities[month] || { aux:false, hours:'', studies:'', comments:'' };
         // read values live from DOM (inputs use .value)
-        cur.aux = !!aux.checked;
         cur.hours = (hours && typeof hours.value !== 'undefined') ? String(hours.value).trim() : '';
         cur.studies = (studies && typeof studies.value !== 'undefined') ? String(studies.value).trim() : '';
-        cur.comments = (comments && comments.textContent) ? comments.textContent.trim() : '';
+        cur.comments = getCommentText(comments);
+
+        // Determine earliest months marked as 'Fin Precursorado Regular' or 'Inicio Precursorado Regular'
+        let finMonthSave = '';
+        let startMonthSave = '';
+        if (p.activities) {
+          for (const k of Object.keys(p.activities)) {
+            if (k === '_lastMonth') continue;
+            const candidate = p.activities[k];
+            const txt = String(candidate && candidate.comments || '').trim();
+            if (txt === 'Fin Precursorado Regular') {
+              if (!finMonthSave || k < finMonthSave) finMonthSave = k;
+            }
+            if (txt === 'Inicio Precursorado Regular') {
+              if (!startMonthSave || k < startMonthSave) startMonthSave = k;
+            }
+          }
+        }
+        const isBeforeFinSave = ((startMonthSave && (month === '' ? false : (month < startMonthSave))) || (finMonthSave && (month === '' ? false : (month < finMonthSave))));
+
+        // For non-Precursor Regular, Aux. Mes must be active ONLY when hours > 1.
+        // If hours === 1 or empty, force aux false and persist; for Precursor Regular always disable Aux. Mes.
+        // IMPORTANT: if saving for a month earlier than finMonth, do not auto-modify cur.aux.
+        if (!isBeforeFinSave) {
+          if (String(p.designation || '').trim() !== 'Precursor Regular') {
+            const hnum = cur.hours === '' ? NaN : Number(cur.hours);
+            if (!isNaN(hnum) && hnum > 1) {
+              cur.aux = true;
+            } else {
+              // when hours is 1 or empty (or non-numeric), ensure aux is not active
+              cur.aux = false;
+            }
+          } else {
+            // Precursor Regular: Aux. Mes must always be false (do not allow checked)
+            cur.aux = false;
+            // keep the checkbox visual state in sync when possible
+            if(aux) aux.checked = false;
+          }
+        }
+
         p.activities[month] = cur;
         save();
       }
@@ -563,6 +648,19 @@ function escapeHtml(s=''){
     .replace(/&/g,'&amp;')
     .replace(/</g,'&lt;')
     .replace(/>/g,'&gt;');
+}
+
+/* extract text content from a contenteditable comment box but exclude any button labels (like the info "i") */
+function getCommentText(el){
+  if(!el) return '';
+  try{
+    // clone to avoid modifying live DOM, remove any buttons then return plain text
+    const c = el.cloneNode(true);
+    c.querySelectorAll('button').forEach(b => b.remove());
+    return (c.textContent || '').trim();
+  }catch(e){
+    return (el && el.textContent) ? String(el.textContent).trim() : '';
+  }
 }
 
 /* calculate whole years since a date string (YYYY-MM-DD). returns null if invalid */
@@ -704,10 +802,157 @@ function updateOptionsBar(){
 
 
 
-    // If there is no selected row, show a "Seleccionar mes" button (per request)
-    // Use a live DOM query to ensure current selection state is respected.
+    // If there is a selected row, show an "Año Servicio" control (year with arrows).
+    // Otherwise show a "Seleccionar mes" button (per request).
     const anySelected = !!document.querySelector('#tbody tr.selected');
-    if(!anySelected){
+
+    // helper to compute service-year month range (Sept prev year -> Aug year)
+    function setServiceYearRange(year) {
+      if(!year || isNaN(Number(year))) return;
+      const y = Number(year);
+      activityRangeFrom = `${String(y-1).padStart(4,'0')}-09`;
+      activityRangeTo = `${String(y).padStart(4,'0')}-08`;
+      activityRangeActive = true;
+      // re-render to expand rows for the selected range if search is present
+      render(searchInput.value);
+    }
+
+    if(anySelected){
+      // build compact year selector with left/right arrows
+      const yearWrap = document.createElement('div');
+      yearWrap.style.display = 'inline-flex';
+      yearWrap.style.alignItems = 'center';
+      yearWrap.style.gap = '6px';
+      yearWrap.style.marginLeft = '8px';
+
+      const label = document.createElement('div');
+      label.textContent = 'Año Servicio';
+      label.style.fontWeight = '700';
+      label.style.color = 'var(--muted)';
+      label.style.fontSize = '13px';
+      label.style.display = 'none'; // visually hide label to keep compact, accessible via tooltip
+      yearWrap.appendChild(label);
+
+      // determine initial service year: prefer existing activityRangeTo or current defaultServiceYear
+      const now = new Date();
+      const defaultServiceYear = (now.getMonth() >= 8) ? (now.getFullYear() + 1) : now.getFullYear();
+      let curYear = (function(){
+        if(activityRangeFrom && activityRangeTo){
+          // parse activityRangeTo year if it matches service-year end (YYYY-08)
+          try{
+            const part = (activityRangeTo || '').split('-')[0];
+            if(part && /^\d{4}$/.test(part)) return Number(part);
+          }catch(e){}
+        }
+        // fallback to previously selected month on any person, else default
+        const anyp = people.find(p => p.activities && p.activities._lastMonth);
+        if(anyp && anyp.activities && anyp.activities._lastMonth){
+          const y = Number(anyp.activities._lastMonth.split('-')[0]);
+          if(!isNaN(y)) return y + (new Date().getMonth() >= 8 ? 1 : 0);
+        }
+        return defaultServiceYear;
+      })();
+
+      // left arrow
+      const left = document.createElement('button');
+      left.className = 'secondary';
+      left.title = 'Año anterior';
+      left.textContent = '◀';
+      left.style.padding = '6px 8px';
+      left.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        curYear = curYear - 1;
+        yearDisplay.textContent = String(curYear);
+        setServiceYearRange(curYear);
+      });
+      yearWrap.appendChild(left);
+
+      // year display
+      const yearDisplay = document.createElement('div');
+      yearDisplay.style.minWidth = '64px';
+      yearDisplay.style.textAlign = 'center';
+      yearDisplay.style.fontWeight = '700';
+      yearDisplay.style.background = 'transparent';
+      yearDisplay.style.padding = '6px 8px';
+      yearDisplay.style.borderRadius = '8px';
+      yearDisplay.style.border = '1px solid rgba(255,255,255,0.04)';
+      yearDisplay.style.color = 'var(--text)';
+      yearDisplay.textContent = String(curYear);
+      yearDisplay.title = 'Año de servicio seleccionado';
+      yearWrap.appendChild(yearDisplay);
+
+      // right arrow
+      const right = document.createElement('button');
+      right.className = 'secondary';
+      right.title = 'Año siguiente';
+      right.textContent = '▶';
+      right.style.padding = '6px 8px';
+      right.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        curYear = curYear + 1;
+        yearDisplay.textContent = String(curYear);
+        setServiceYearRange(curYear);
+      });
+      yearWrap.appendChild(right);
+
+      // clicking year display opens small chooser (month-tab style) to type/select year quickly
+      yearDisplay.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        // prevent multiple tabs
+        if(document.getElementById('serviceYearTab')) return;
+        const tab = document.createElement('div');
+        tab.id = 'serviceYearTab';
+        tab.className = 'month-tab';
+        tab.style.minWidth = '180px';
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = '1900';
+        input.max = '2099';
+        input.value = String(curYear);
+        input.style.width = '100%';
+        input.addEventListener('keydown', (ke) => {
+          if(ke.key === 'Enter'){
+            ke.preventDefault();
+            const v = parseInt(input.value,10) || curYear;
+            curYear = v;
+            yearDisplay.textContent = String(curYear);
+            setServiceYearRange(curYear);
+            tab.remove();
+          } else if(ke.key === 'Escape'){
+            ke.preventDefault();
+            tab.remove();
+          }
+        });
+        input.addEventListener('change', () => {
+          const v = parseInt(input.value,10) || curYear;
+          curYear = v;
+          yearDisplay.textContent = String(curYear);
+          setServiceYearRange(curYear);
+          tab.remove();
+        });
+        tab.appendChild(input);
+        document.body.appendChild(tab);
+        const rect = yearDisplay.getBoundingClientRect();
+        tab.style.position = 'absolute';
+        tab.style.left = (rect.left + window.scrollX) + 'px';
+        tab.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+        tab.style.zIndex = 9999;
+        input.focus();
+
+        setTimeout(() => {
+          const onDocClick = (ev) => {
+            if(!tab) return;
+            if(!tab.contains(ev.target) && ev.target !== yearDisplay){
+              tab.remove();
+              document.removeEventListener('click', onDocClick);
+            }
+          };
+          document.addEventListener('click', onDocClick);
+        }, 0);
+      });
+
+      wrap.appendChild(yearWrap);
+    } else {
       const selectMonthBtn = document.createElement('button');
       selectMonthBtn.className = 'secondary';
       selectMonthBtn.textContent = 'Seleccionar mes';
@@ -2749,11 +2994,38 @@ function renderActivityRowsFor(person, serviceYear){
     const act = (person.activities && person.activities[m.key]) ? person.activities[m.key] : { aux:false, hours:'', studies:'', comments:'' };
 
     // Determine whether this person's hours should be displayed:
-    // show hours when the person is a Precursor Regular or Precursor Auxiliar,
+    // show hours when the person is a Precursor Regular,
     // or when the month's Aux. Mes checkbox is active for that month.
+    // Additionally, if there exists a later month marked "Fin Precursorado Regular",
+    // months earlier than that fin month must preserve their hours (>1) visibility even if designation changed.
     const designation = String(person.designation || '').trim();
-    const isPrecursor = (designation === 'Precursor Regular' || designation === 'Precursor Auxiliar');
-    const showHoursForMonth = isPrecursor || !!act.aux;
+    const isPrecursor = (designation === 'Precursor Regular');
+
+    // find earliest fin/start month (if any)
+    let finMonth = '';
+    let startMonth = '';
+    if (person.activities) {
+      for (const k of Object.keys(person.activities)) {
+        if (k === '_lastMonth') continue;
+        const candidate = person.activities[k];
+        const txt = String(candidate && candidate.comments || '').trim();
+        if (txt === 'Fin Precursorado Regular') {
+          if (!finMonth || k < finMonth) finMonth = k;
+        }
+        if (txt === 'Inicio Precursorado Regular') {
+          if (!startMonth || k < startMonth) startMonth = k;
+        }
+      }
+    }
+
+    const monthKey = m.key;
+    const isBeforeFin = ((startMonth && monthKey < startMonth) || (finMonth && monthKey < finMonth));
+
+    // show hours if precursor, or aux checked, or if this month is before a "Fin Precursorado Regular" and hours > 1
+    // BUT never show hours when the recorded value is exactly 1 (these must be hidden in the registro popup)
+    const _hoursValStr = String(act.hours || '').trim();
+    const _isExactlyOne = (_hoursValStr === '1' || Number(_hoursValStr) === 1);
+    const showHoursForMonth = !_isExactlyOne && (isPrecursor || !!act.aux || (isBeforeFin && act.hours !== '' && Number(act.hours) > 1));
 
     // Participation should reflect whether the record indicates participation:
     // consider participation true only when numeric hours > 0 (months with no hours show no check).
@@ -3149,8 +3421,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Determine whether to display hours for this person/month:
         const designation = person ? String(person.designation || '').trim() : '';
-        const isPrecursor = (designation === 'Precursor Regular' || designation === 'Precursor Auxiliar');
-        const showHoursForMonth = isPrecursor || !!act.aux;
+        const isPrecursor = (designation === 'Precursor Regular');
+        // Never show hours when the recorded value is exactly 1
+        const _hoursValStr_pdf = String(act.hours || '').trim();
+        const _isExactlyOne_pdf = (_hoursValStr_pdf === '1' || Number(_hoursValStr_pdf) === 1);
+        const showHoursForMonth = !_isExactlyOne_pdf && (isPrecursor || !!act.aux);
 
         // Participation should reflect the stored record: only when numeric hours > 0
         const participated = (act.hours !== '' && parseInt(act.hours || 10) > 0);
@@ -3319,6 +3594,90 @@ document.addEventListener('DOMContentLoaded', () => {
       generateProfilePDF();
     });
   }
+});
+
+/* Info-icon handler for activity comment boxes:
+   When the info button inside .act-comments is clicked, show a small tab with two choices:
+   "Inicio Precursorado Regular" and "Fin Precursorado Regular". Selecting one will replace
+   the comment cell text with the chosen label (visible in the contenteditable box). */
+tbody.addEventListener('click', (e) => {
+  const infoBtn = e.target.closest('.comment-info');
+  if (!infoBtn) return;
+  e.stopPropagation();
+
+  // find the comment container (the contenteditable .act-comments div)
+  const commentBox = infoBtn.closest('.act-comments');
+  if (!commentBox) return;
+
+  // prevent multiple tabs
+  const existing = document.getElementById('commentInfoTab');
+  if (existing) existing.remove();
+
+  // build small tab
+  const tab = document.createElement('div');
+  tab.id = 'commentInfoTab';
+  tab.className = 'month-tab';
+  tab.style.minWidth = '220px';
+  tab.style.padding = '8px';
+  tab.style.display = 'flex';
+  tab.style.flexDirection = 'column';
+  tab.style.gap = '8px';
+
+  const opt1 = document.createElement('button');
+  opt1.type = 'button';
+  opt1.className = 'secondary';
+  opt1.textContent = 'Inicio Precursorado Regular';
+  opt1.style.width = '100%';
+  opt1.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    // set the comment text to this label
+    commentBox.textContent = 'Inicio Precursorado Regular';
+    // re-append the info button to keep UI consistent (contenteditable was replaced)
+    commentBox.appendChild(infoBtn);
+    // close tab
+    tab.remove();
+    // trigger blur/save if needed by dispatching input event
+    commentBox.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  const opt2 = document.createElement('button');
+  opt2.type = 'button';
+  opt2.className = 'secondary';
+  opt2.textContent = 'Fin Precursorado Regular';
+  opt2.style.width = '100%';
+  opt2.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    commentBox.textContent = 'Fin Precursorado Regular';
+    commentBox.appendChild(infoBtn);
+    tab.remove();
+    commentBox.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  // optionally allow appending the label instead of replacing: add small toggle (not shown) - keep simple replace per request
+  tab.appendChild(opt1);
+  tab.appendChild(opt2);
+
+  document.body.appendChild(tab);
+  // position tab directly attached under the info icon (centered under the icon)
+  const rect = infoBtn.getBoundingClientRect();
+  tab.style.position = 'absolute';
+  // place tab centered under the icon and snug against its bottom (small 4px gap)
+  tab.style.left = (rect.left + window.scrollX + rect.width / 2) + 'px';
+  tab.style.transform = 'translateX(-50%)';
+  tab.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+  tab.style.zIndex = 9999;
+
+  // clicking outside closes the tab
+  setTimeout(() => {
+    const onDocClick = (ev) => {
+      if (!tab) return;
+      if (!tab.contains(ev.target) && ev.target !== infoBtn) {
+        tab.remove();
+        document.removeEventListener('click', onDocClick);
+      }
+    };
+    document.addEventListener('click', onDocClick);
+  }, 0);
 });
 
 initResizableColumns();

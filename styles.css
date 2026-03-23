@@ -512,9 +512,11 @@ body{
 
 /* Activity comments editable box styled like the numeric inputs */
 .act-comments{
+  position:relative;               /* allow absolutely positioned info icon inside */
   border:1px solid var(--subtle);
   border-radius:8px;
   padding:8px 10px;
+  padding-right:36px;              /* room for the info icon */
   min-height:40px;
   max-height:140px;
   overflow:auto;
@@ -526,6 +528,30 @@ body{
   word-break:break-word;
   line-height:1.25;
   color: var(--text);
+}
+
+/* circular info icon placed at the end (inside) of the comment box */
+.comment-info{
+  position:absolute;
+  right:8px;
+  bottom:8px;
+  width:24px;
+  height:24px;
+  border-radius:50%;
+  border:0;
+  background: rgba(11,102,255,0.08);
+  color: var(--accent-strong);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+  font-size:12px;
+  cursor:default;
+  box-shadow: 0 2px 6px rgba(11,102,255,0.06);
+}
+.comment-info:focus{
+  outline: none;
+  box-shadow: 0 2px 10px rgba(11,102,255,0.14);
 }
 
 /* Small "tab" panel displayed when selecting a month under the "Seleccionar mes" button */
