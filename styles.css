@@ -510,13 +510,23 @@ body{
 }
 .num-input{ font-size:13px; padding:8px 10px; color:var(--text); background:#fff; border:1px solid var(--subtle); }
 
-/* Activity comments editable box styled like the numeric inputs */
+/* Activity comments wrapper and inner editable box styled like the numeric inputs */
 .act-comments{
   position:relative;               /* allow absolutely positioned info icon inside */
+  border-radius:8px;
+  padding:0;                        /* inner editable handles padding */
+  min-height:40px;
+  max-height:140px;
+  background: transparent;
+  box-sizing:border-box;
+}
+
+/* actual contenteditable area inside the wrapper */
+.act-comments-input{
   border:1px solid var(--subtle);
   border-radius:8px;
   padding:8px 10px;
-  padding-right:36px;              /* room for the info icon */
+  padding-right:36px;              /* room for the info icon which sits in the wrapper */
   min-height:40px;
   max-height:140px;
   overflow:auto;
@@ -530,7 +540,7 @@ body{
   color: var(--text);
 }
 
-/* circular info icon placed at the end (inside) of the comment box */
+/* circular info icon placed at the end (inside wrapper) of the comment box */
 .comment-info{
   position:absolute;
   right:8px;
@@ -575,8 +585,8 @@ body{
   color: var(--text);
 }
 
-/* placeholder behavior for contenteditable */
-.act-comments:empty:before{
+/* placeholder behavior for inner contenteditable */
+.act-comments-input:empty:before{
   content: attr(data-placeholder);
   color: var(--muted);
   pointer-events: none;

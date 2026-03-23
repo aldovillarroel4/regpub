@@ -431,7 +431,10 @@ function render(filter=''){
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-hours num-input" value="${escapeHtml(act.hours || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-studies num-input" value="${escapeHtml(act.studies || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
           <td>
-            <div contenteditable="true" class="act-comments" data-placeholder="Comentarios">${escapeHtml(act.comments || '')}<button type="button" class="comment-info" title="Información">i</button></div>
+            <div class="act-comments" data-placeholder="Comentarios">
+              <div contenteditable="true" class="act-comments-input" data-placeholder="Comentarios">${escapeHtml(act.comments || '')}</div>
+              <button type="button" class="comment-info" title="Información">i</button>
+            </div>
           </td>
         `;
         tbody.appendChild(tr);
@@ -471,7 +474,10 @@ function render(filter=''){
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-hours num-input" value="${escapeHtml(act.hours || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-studies num-input" value="${escapeHtml(act.studies || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
           <td>
-            <div contenteditable="true" class="act-comments" data-placeholder="Comentarios">${escapeHtml(act.comments || '')}<button type="button" class="comment-info" title="Información">i</button></div>
+            <div class="act-comments" data-placeholder="Comentarios">
+              <div contenteditable="true" class="act-comments-input" data-placeholder="Comentarios">${escapeHtml(act.comments || '')}</div>
+              <button type="button" class="comment-info" title="Información">i</button>
+            </div>
           </td>
         `;
       } else {
@@ -522,7 +528,7 @@ function render(filter=''){
       const aux = tr.querySelector('.act-aux');
       const hours = tr.querySelector('.act-hours'); // input[type=number]
       const studies = tr.querySelector('.act-studies'); // input[type=number]
-      const comments = tr.querySelector('.act-comments'); // contenteditable div
+      const comments = tr.querySelector('.act-comments-input'); // contenteditable inner div
 
       // ensure activities container
       if(!p.activities) p.activities = {};
@@ -654,6 +660,10 @@ function escapeHtml(s=''){
 function getCommentText(el){
   if(!el) return '';
   try{
+    // if wrapper passed, select inner editable area
+    if(el.classList && el.classList.contains && el.classList.contains('act-comments')){
+      el = el.querySelector('.act-comments-input') || el;
+    }
     // clone to avoid modifying live DOM, remove any buttons then return plain text
     const c = el.cloneNode(true);
     c.querySelectorAll('button').forEach(b => b.remove());
@@ -3598,16 +3608,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* Info-icon handler for activity comment boxes:
    When the info button inside .act-comments is clicked, show a small tab with two choices:
-   "Inicio Precursorado Regular" and "Fin Precursorado Regular". Selecting one will replace
-   the comment cell text with the chosen label (visible in the contenteditable box). */
+   "Inicio Precursorado Regular" and "Fin Precursorado Regular". Selecting one will set
+   the content of the editable comment area (.act-comments-input) to the chosen label. */
 tbody.addEventListener('click', (e) => {
   const infoBtn = e.target.closest('.comment-info');
   if (!infoBtn) return;
   e.stopPropagation();
 
-  // find the comment container (the contenteditable .act-comments div)
+  // find the comment container (the wrapper .act-comments) and the editable inner div
   const commentBox = infoBtn.closest('.act-comments');
   if (!commentBox) return;
+  const editable = commentBox.querySelector('.act-comments-input');
 
   // prevent multiple tabs
   const existing = document.getElementById('commentInfoTab');
@@ -3630,14 +3641,27 @@ tbody.addEventListener('click', (e) => {
   opt1.style.width = '100%';
   opt1.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    // set the comment text to this label
-    commentBox.textContent = 'Inicio Precursorado Regular';
-    // re-append the info button to keep UI consistent (contenteditable was replaced)
-    commentBox.appendChild(infoBtn);
+    // set the editable area's text to this label (preserves the wrapper and info button)
+    if(editable){
+      editable.textContent = 'Inicio Precursorado Regular';
+      // put caret at end for UX
+      placeCaretAtEnd(editable);
+      // notify handlers to save
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    } else {
+      // fallback: set wrapper text but then recreate editable area to avoid losing UI
+      commentBox.textContent = '';
+      const newEd = document.createElement('div');
+      newEd.className = 'act-comments-input';
+      newEd.setAttribute('contenteditable','true');
+      newEd.setAttribute('data-placeholder','Comentarios');
+      newEd.textContent = 'Inicio Precursorado Regular';
+      commentBox.appendChild(newEd);
+      commentBox.appendChild(infoBtn);
+      newEd.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     // close tab
     tab.remove();
-    // trigger blur/save if needed by dispatching input event
-    commentBox.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
   const opt2 = document.createElement('button');
@@ -3647,13 +3671,39 @@ tbody.addEventListener('click', (e) => {
   opt2.style.width = '100%';
   opt2.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    commentBox.textContent = 'Fin Precursorado Regular';
-    commentBox.appendChild(infoBtn);
+    if(editable){
+      editable.textContent = 'Fin Precursorado Regular';
+      placeCaretAtEnd(editable);
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    } else {
+      commentBox.textContent = '';
+      const newEd = document.createElement('div');
+      newEd.className = 'act-comments-input';
+      newEd.setAttribute('contenteditable','true');
+      newEd.setAttribute('data-placeholder','Comentarios');
+      newEd.textContent = 'Fin Precursorado Regular';
+      commentBox.appendChild(newEd);
+      commentBox.appendChild(infoBtn);
+      newEd.dispatchEvent(new Event('input', { bubbles: true }));
+    }
     tab.remove();
-    commentBox.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
-  // optionally allow appending the label instead of replacing: add small toggle (not shown) - keep simple replace per request
+  // helper to place caret at end of contenteditable for better UX
+  function placeCaretAtEnd(el){
+    try{
+      el.focus();
+      if(typeof window.getSelection !== 'undefined' && typeof document.createRange !== 'undefined'){
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }catch(e){}
+  }
+
   tab.appendChild(opt1);
   tab.appendChild(opt2);
 
