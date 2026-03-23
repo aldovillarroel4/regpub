@@ -432,7 +432,7 @@ function render(filter=''){
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-studies num-input" value="${escapeHtml(act.studies || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
           <td>
             <div class="act-comments" data-placeholder="Comentarios">
-              <div contenteditable="true" class="act-comments-input" data-placeholder="Comentarios">${escapeHtml(act.comments || '')}</div>
+              <div contenteditable="true" class="act-comments-input" data-placeholder="Comentarios">${escapeHtml((act.comments || '').slice(0,27))}</div>
               <button type="button" class="comment-info" title="Información">i</button>
             </div>
           </td>
@@ -475,7 +475,7 @@ function render(filter=''){
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-studies num-input" value="${escapeHtml(act.studies || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
           <td>
             <div class="act-comments" data-placeholder="Comentarios">
-              <div contenteditable="true" class="act-comments-input" data-placeholder="Comentarios">${escapeHtml(act.comments || '')}</div>
+              <div contenteditable="true" class="act-comments-input" data-placeholder="Comentarios">${escapeHtml((act.comments || '').slice(0,27))}</div>
               <button type="button" class="comment-info" title="Información">i</button>
             </div>
           </td>
@@ -542,7 +542,7 @@ function render(filter=''){
         // read values live from DOM (inputs use .value)
         cur.hours = (hours && typeof hours.value !== 'undefined') ? String(hours.value).trim() : '';
         cur.studies = (studies && typeof studies.value !== 'undefined') ? String(studies.value).trim() : '';
-        cur.comments = getCommentText(comments);
+        cur.comments = (getCommentText(comments) || '').slice(0,27);
 
         // Determine earliest months marked as 'Fin Precursorado Regular' or 'Inicio Precursorado Regular'
         let finMonthSave = '';
@@ -619,6 +619,22 @@ function render(filter=''){
       // comments contenteditable handling
       if(comments){
         comments.addEventListener('input', () => {
+          // enforce max length 27 in the editable comments box
+          try {
+            const txt = comments.textContent || '';
+            if (txt.length > 27) {
+              const trimmed = txt.slice(0,27);
+              comments.textContent = trimmed;
+              // move caret to end
+              const range = document.createRange();
+              range.selectNodeContents(comments);
+              range.collapse(false);
+              const sel = window.getSelection();
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          } catch (err) { /* ignore selection quirks */ }
+
           clearTimeout(comments._t);
           comments._t = setTimeout(() => saveActivityFor(monthInput.value), 400);
         });
@@ -3608,17 +3624,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* Info-icon handler for activity comment boxes:
    When the info button inside .act-comments is clicked, show a small tab with two choices:
-   "Inicio Precursorado Regular" and "Fin Precursorado Regular". Selecting one will set
-   the content of the editable comment area (.act-comments-input) to the chosen label. */
+   "Inicio Precursorado Regular" and "Fin Precursorado Regular". Selecting one will replace
+   the comment cell text with the chosen label (visible in the contenteditable box). */
 tbody.addEventListener('click', (e) => {
   const infoBtn = e.target.closest('.comment-info');
   if (!infoBtn) return;
   e.stopPropagation();
 
-  // find the comment container (the wrapper .act-comments) and the editable inner div
+  // find the comment container (the contenteditable .act-comments div)
   const commentBox = infoBtn.closest('.act-comments');
   if (!commentBox) return;
-  const editable = commentBox.querySelector('.act-comments-input');
 
   // prevent multiple tabs
   const existing = document.getElementById('commentInfoTab');
@@ -3641,26 +3656,15 @@ tbody.addEventListener('click', (e) => {
   opt1.style.width = '100%';
   opt1.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    // set the editable area's text to this label (preserves the wrapper and info button)
-    if(editable){
+    // write the label into the inner editable area so the wrapper and info button stay intact
+    const editable = commentBox.querySelector('.act-comments-input') || commentBox;
+    if(editable && typeof editable.textContent !== 'undefined'){
       editable.textContent = 'Inicio Precursorado Regular';
-      // put caret at end for UX
-      placeCaretAtEnd(editable);
-      // notify handlers to save
+      // focus the editable area for immediate feedback and persist
+      try{ editable.focus(); }catch(e){}
+      // trigger save handlers by dispatching input
       editable.dispatchEvent(new Event('input', { bubbles: true }));
-    } else {
-      // fallback: set wrapper text but then recreate editable area to avoid losing UI
-      commentBox.textContent = '';
-      const newEd = document.createElement('div');
-      newEd.className = 'act-comments-input';
-      newEd.setAttribute('contenteditable','true');
-      newEd.setAttribute('data-placeholder','Comentarios');
-      newEd.textContent = 'Inicio Precursorado Regular';
-      commentBox.appendChild(newEd);
-      commentBox.appendChild(infoBtn);
-      newEd.dispatchEvent(new Event('input', { bubbles: true }));
     }
-    // close tab
     tab.remove();
   });
 
@@ -3671,39 +3675,16 @@ tbody.addEventListener('click', (e) => {
   opt2.style.width = '100%';
   opt2.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    if(editable){
+    const editable = commentBox.querySelector('.act-comments-input') || commentBox;
+    if(editable && typeof editable.textContent !== 'undefined'){
       editable.textContent = 'Fin Precursorado Regular';
-      placeCaretAtEnd(editable);
+      try{ editable.focus(); }catch(e){}
       editable.dispatchEvent(new Event('input', { bubbles: true }));
-    } else {
-      commentBox.textContent = '';
-      const newEd = document.createElement('div');
-      newEd.className = 'act-comments-input';
-      newEd.setAttribute('contenteditable','true');
-      newEd.setAttribute('data-placeholder','Comentarios');
-      newEd.textContent = 'Fin Precursorado Regular';
-      commentBox.appendChild(newEd);
-      commentBox.appendChild(infoBtn);
-      newEd.dispatchEvent(new Event('input', { bubbles: true }));
     }
     tab.remove();
   });
 
-  // helper to place caret at end of contenteditable for better UX
-  function placeCaretAtEnd(el){
-    try{
-      el.focus();
-      if(typeof window.getSelection !== 'undefined' && typeof document.createRange !== 'undefined'){
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        range.collapse(false);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-    }catch(e){}
-  }
-
+  // optionally allow appending the label instead of replacing: add small toggle (not shown) - keep simple replace per request
   tab.appendChild(opt1);
   tab.appendChild(opt2);
 
