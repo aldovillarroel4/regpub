@@ -64,7 +64,7 @@ function onGoogleUserLoggedIn(userData) {
   const signOutBtn = document.getElementById("googleSignOutBtn");
   if (infoElement) {
     infoElement.style.display = "block";
-    infoElement.textContent = `Sesión iniciada como ${userData.name} (${userData.email})`;
+    infoElement.textContent = `Sesión iniciada como ${userData.name}`;
   }
   if (btnContainer) {
     btnContainer.style.display = "none";
