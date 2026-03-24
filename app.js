@@ -122,13 +122,15 @@ function ensureDriveAccessToken(callback) {
   }, 500);
 }
 
-/* Construye nombre de archivo para respaldo: YYYY-MM-DD-RESPALDO-REGPUB.json */
+/* Construye nombre de archivo para respaldo: YYYY-MM-DD_HH.MM-RESPALDO-REGPUB */
 function buildBackupFileName() {
   const now = new Date();
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const dd = String(now.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}-RESPALDO-REGPUB.json`;
+  const hh = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}_${hh}.${min}-RESPALDO-REGPUB`;
 }
 
 /* Guarda respaldo en la carpeta DRIVE_FOLDER_ID usando Drive REST upload multipart */
@@ -145,7 +147,7 @@ function saveBackupToDrive() {
       const form = new FormData();
       form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
       form.append("file", new Blob([JSON.stringify(appState)], { type: "application/json" }));
-      const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
+      const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name", {
         method: "POST",
         headers: { Authorization: "Bearer " + driveAccessToken },
         body: form
@@ -154,6 +156,14 @@ function saveBackupToDrive() {
         console.error("Error al guardar respaldo en Drive", await response.text());
         alert("Error al guardar respaldo en Google Drive.");
         return;
+      }
+      // if upload succeeded, update indicator with filename
+      try {
+        const resJson = await response.json();
+        const indicator = document.getElementById('lastBackupIndicator');
+        if (indicator) indicator.textContent = `Último respaldo: ${fileName}`;
+      } catch (e) {
+        // ignore indicator errors
       }
       alert("Respaldo guardado correctamente en Google Drive.");
     } catch (err) {
@@ -166,7 +176,7 @@ function saveBackupToDrive() {
 /* Busca el último archivo de respaldo en la carpeta DRIVE_FOLDER_ID */
 async function findLatestBackupFileId() {
   try {
-    const query = `'${DRIVE_FOLDER_ID}' in parents and name contains 'RESPALDO-REGPUB.json' and trashed = false`;
+    const query = `'${DRIVE_FOLDER_ID}' in parents and name contains 'RESPALDO-REGPUB' and trashed = false`;
     const url = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(query) + "&orderBy=createdTime desc&pageSize=1&fields=files(id,name,createdTime)";
     const response = await fetch(url, { headers: { Authorization: "Bearer " + driveAccessToken } });
     if (!response.ok) {
@@ -175,7 +185,8 @@ async function findLatestBackupFileId() {
     }
     const data = await response.json();
     if (!data.files || data.files.length === 0) return null;
-    return data.files[0].id;
+    // return the file object (id, name, createdTime) so caller can display the filename
+    return data.files[0];
   } catch (err) {
     console.error("Error en findLatestBackupFileId:", err);
     return null;
@@ -183,19 +194,19 @@ async function findLatestBackupFileId() {
 }
 
 /* Carga el último respaldo de la carpeta DRIVE_FOLDER_ID y aplica restoreAppState */
-function loadLatestBackupFromDrive() {
+async function loadLatestBackupFromDrive() {
   if (!window.currentGoogleUser) {
     alert("Primero debes iniciar sesión con Google.");
     return;
   }
   ensureDriveAccessToken(async () => {
     try {
-      const fileId = await findLatestBackupFileId();
-      if (!fileId) {
+      const file = await findLatestBackupFileId();
+      if (!file) {
         alert("No se encontró ningún respaldo en Google Drive.");
         return;
       }
-      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
       const response = await fetch(downloadUrl, { headers: { Authorization: "Bearer " + driveAccessToken } });
       if (!response.ok) {
         console.error("Error al descargar respaldo desde Drive", await response.text());
@@ -204,6 +215,11 @@ function loadLatestBackupFromDrive() {
       }
       const state = await response.json();
       restoreAppState(state);
+      // update indicator with the file name we downloaded
+      try {
+        const indicator = document.getElementById('lastBackupIndicator');
+        if (indicator) indicator.textContent = `Último respaldo: ${file.name || file.id}`;
+      } catch (e) {}
       alert("Respaldo cargado correctamente desde Google Drive.");
     } catch (err) {
       console.error("Error cargando respaldo desde Drive:", err);
@@ -2841,6 +2857,8 @@ importFile.addEventListener('change', (e) => {
       });
       save();
       render(searchInput.value);
+      // set last backup indicator to the imported filename (if available)
+      try{ const ind = document.getElementById('lastBackupIndicator'); if(ind) ind.textContent = `Último respaldo: ${f.name}`; }catch(e){}
       alert('Importación completada.');
     }catch(err){
       alert('Error al importar: ' + (err && err.message ? err.message : err));
