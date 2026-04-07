@@ -118,6 +118,20 @@ body{
 /* keep the hidden helper */
 .hidden{display:none}
 
+/* Ensure specific banner action buttons share exactly the same width */
+#guardarRespaldoBtn,
+#cargarRespaldoBtn,
+#logoutGoogleBtn,
+#backupBtn {
+  width: 110px;           /* exact same width for visual consistency */
+  box-sizing: border-box; /* include padding/border in width */
+}
+
+/* Ensure the buttons remain touch-friendly and don't shrink on small screens */
+.banner-controls button.secondary {
+  min-width: 110px;
+}
+
 /* Toolbar */
 .toolbar{
   display:flex;
