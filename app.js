@@ -1,5321 +1,4483 @@
-// Modelo de datos actualizado
-let accounts = {
-  Efectivo: {
-    balance: 0,
-    type: 'corriente',
-    treatment: 'activos',
-    description: 'Cuenta de efectivo',
-    displayName: 'Efectivo',
-    isSettled: false
-  },
-  Banco: {
-    balance: 0,
-    type: 'corriente',
-    treatment: 'activos',
-    description: 'Cuenta bancaria principal',
-    displayName: 'Banco',
-    isSettled: false
-  },
-  Tarjeta: {
-    balance: 0,
-    type: 'credito',
-    treatment: 'pasivos',
-    description: 'Tarjeta de crédito principal',
-    displayName: 'Tarjeta',
-    isSettled: false
-  }
-};
+/* app.js - Registro de personas con persistencia en localStorage
+   Added an Activity view mode with editable activity fields per person.
+*/
+const LS_KEY = 'people_registry_v1';
+const BANNER_TITLE_KEY = 'people_registry_banner_title_v1';
+const GROUP_TITLE_KEY = 'people_registry_group_title_v1';
 
-// Safe replace helper to avoid NotFoundError when blur/other handlers remove nodes before replaceWith runs
-function safeReplaceWith(oldEl, newEl){
+const $ = sel => document.querySelector(sel);
+const tbody = $('#tbody');
+const totalCountEl = $('#totalCount');
+const addBtn = $('#addPersonBtn');
+
+const exportBtn = $('#exportBtn');
+const importBtn = $('#importBtn');
+const importFile = $('#importFile');
+const csvFile = $('#csvFile'); // CSV bulk loader input
+const backupBtn = $('#backupBtn');
+const backupMenu = $('#backupMenu');
+const modal = $('#modal');
+const closeModal = $('#closeModal');
+const cancelBtn = $('#cancelBtn');
+const form = $('#personForm');
+const personId = $('#personId');
+const searchInput = $('#search');
+const clearSearchBtn = $('#clearSearchBtn');
+const actividadBtn = $('#actividadBtn');
+const registroBtn = $('#registroBtn');
+const loadBtn = $('#loadBtn'); // modal "Cargar" button
+
+let people = load();
+let activityMode = false; // false = normal registry, true = activity view
+// track currently selected person's id so options bar can react reliably
+let selectedId = null;
+
+/* ---------------- Google Identity + Drive backup (lado cliente) ----------------
+   Cliente OAuth y flujo para guardar/cargar respaldos en una carpeta fija de Drive.
+   Todos los mensajes y comentarios en español según lo solicitado.
+*/
+const GOOGLE_CLIENT_ID = "246001297573-6lhum09e91928r98v5v84sj241tsj93n.apps.googleusercontent.com";
+const DRIVE_FOLDER_ID = "1oClmddbswPeTzX6_tXcBh9dQsNyMMlaY";
+let driveTokenClient = null;
+let driveAccessToken = null;
+window.currentGoogleUser = null;
+
+/* Maneja la respuesta de Identity Services (credential = JWT) */
+function handleCredentialResponse(response) {
   try {
-    // try native replaceWith first
-    oldEl.replaceWith(newEl);
+    const jwt = response.credential;
+    const payload = JSON.parse(atob(jwt.split(".")[1]));
+    const userData = { name: payload.name, email: payload.email, picture: payload.picture };
+    onGoogleUserLoggedIn(userData);
   } catch (err) {
-    // fallback to replaceChild if oldEl is no longer attached the way replaceWith expects
-    if (oldEl && oldEl.parentNode) {
-      try { oldEl.parentNode.replaceChild(newEl, oldEl); } catch(e) { /* swallow */ }
-    } else {
-      // as last resort try to insert newEl where possible
-      if (document.body && !newEl.isConnected) document.body.appendChild(newEl);
-    }
+    console.error("Error procesando credencial de Google:", err);
+    alert("No se pudo procesar la respuesta de inicio de sesión de Google.");
   }
 }
 
-let selectedAccount = null;
-let transactions = [];
-let selectedTransactionId = null;
-let accountsOrder = {
-  activos: [],
-  pasivos: []
-};
-let transactionsOrder = [];
-let isPanelsHidden = false;
-
-let commissionRates = {
-  debito: 1.5,
-  credito: 3.0
-};
-
-let ivaRate = 19.0;
-
-let salonSales = [];
-let salesBoletas = {};
-
-let isCardFilterActive = false;
-let isDateFilterActive = false;
-let selectedFilterDate = null;
-
-let hairdresserCommissions = {
-  aldo: {
-    rec: 0,
-    com: 100,
-    ret: 14.5
-  },
-  marcos: {
-    rec: 3, 
-    com: 35,
-    ret: 14.5
-  },
-  otro: {
-    rec: 3,
-    com: 35,
-    ret: 14.5
+/* Actualiza UI cuando el usuario se loguea */
+function onGoogleUserLoggedIn(userData) {
+  window.currentGoogleUser = userData;
+  try { localStorage.setItem('google_user_v1', JSON.stringify(userData)); } catch (e) { /* ignore */ }
+  const infoElement = document.getElementById("googleUserInfo");
+  const btnContainer = document.getElementById("googleSignInButton");
+  const signOutBtn = document.getElementById("googleSignOutBtn");
+  if (infoElement) {
+    infoElement.style.display = "block";
+    infoElement.textContent = `Sesión iniciada como ${userData.name}`;
   }
-};
-
-let figaroIndicators = {
-  diasHabilesMes: null,
-  metaMes: null,
-  selectedWeek: 1
-};
-
-function formatCurrency(amount) {
-  return new Intl.NumberFormat('es-CL', {
-    style: 'currency',
-    currency: 'CLP',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(amount);
-}
-
-function updateAccountButtons() {
-  const deleteBtn = document.querySelector('.delete-account-btn');
-  
-  if (selectedAccount) {
-    deleteBtn.disabled = false;
-  } else {
-    deleteBtn.disabled = true;
+  if (btnContainer) {
+    btnContainer.style.display = "none";
+  }
+  if (signOutBtn) {
+    signOutBtn.style.display = "inline-flex";
   }
 }
 
-function updateTotalBalance() {
-  const transbankValue = salonSales
-    .filter(sale => sale.paymentType === 'credito' || sale.paymentType === 'debito')
-    .filter(sale => !sale.paid)
-    .reduce((sum, sale) => sum + sale.netAmount, 0);
-
-  // Update Transbank debt value in external data panel
-  const transbankDataContent = document.querySelector('.data-box:first-child .data-content p');
-  transbankDataContent.textContent = formatCurrency(transbankValue);
-
-  // Calculate Aldo retention
-  const aldoSales = salonSales.filter(sale => sale.hairdresser === 'ALDO');
-  const aldoTotalSales = aldoSales.reduce((sum, sale) => sum + sale.amount, 0);
-  const aldoRetention = aldoTotalSales * (hairdresserCommissions.aldo.ret / 100);
-
-  // Update Aldo retention value in external data panel
-  const aldoRetentionContent = document.getElementById('aldoRetentionValue');
-  aldoRetentionContent.textContent = formatCurrency(aldoRetention);
-
-  // Get the diferencia semanal value 
-  const diferenciaSemanalElement = document.querySelector('.data-box:nth-child(2) .data-content p');
-  const diferenciaSemanalValue = diferenciaSemanalElement ? 
-    parseFloat(diferenciaSemanalElement.textContent.replace(/[^0-9-]/g, '')) : 0;
-
-  // Calculate activos total (including transbank value)
-  const activosTotal = Object.entries(accounts).reduce((sum, [_, account]) => {
-    if (account.treatment === 'activos') {
-      return sum + account.balance;
-    }
-    return sum;
-  }, 0) + transbankValue;
-
-  // Calculate pasivos total (including diferencia semanal as negative)
-  const pasivosTotal = Object.entries(accounts).reduce((sum, [_, account]) => {
-    if (account.treatment === 'pasivos') {
-      return sum + account.balance;
-    }
-    return sum;
-  }, 0) - Math.abs(diferenciaSemanalValue); // Add diferencia semanal as negative
-
-  // Calculate total balance (activos - pasivos)
-  const total = activosTotal - Math.abs(pasivosTotal);
-  
-  // Update total display
-  document.getElementById('totalAmount').textContent = formatCurrency(total);
+/* Cierra la sesión localmente: borra localStorage, limpia token y restaura UI */
+function signOut() {
+  try { localStorage.removeItem('google_user_v1'); } catch (e) { /* ignore */ }
+  window.currentGoogleUser = null;
+  driveAccessToken = null;
+  const infoElement = document.getElementById("googleUserInfo");
+  const btnContainer = document.getElementById("googleSignInButton");
+  const signOutBtn = document.getElementById("googleSignOutBtn");
+  if (infoElement) { infoElement.style.display = "none"; infoElement.textContent = ""; }
+  if (btnContainer) { btnContainer.style.display = "block"; }
+  if (signOutBtn) { signOutBtn.style.display = "none"; }
 }
 
-function updateAccountsList() {
-  const activosList = document.getElementById('activosList');
-  const pasivosList = document.getElementById('pasivosList');
-  
-  activosList.innerHTML = '';
-  pasivosList.innerHTML = '';
-  
-  let activosTotal = 0;
-  let pasivosTotal = 0;
+/* Devuelve el estado de la app a respaldar (preparado para completar) */
+function getAppState() {
+  // Aquí puedes añadir las propiedades que quieras guardar en el respaldo.
+  // Por ahora retorna un objeto vacío listo para que lo extiendas.
+  return {
+    // ejemplo: personas: people
+    personas: people,
+    // otras configuraciones/valores de la interfaz pueden añadirse aquí
+  };
+}
 
-  const activosAccounts = Object.keys(accounts).filter(key => accounts[key].treatment === 'activos');
-  const pasivosAccounts = Object.keys(accounts).filter(key => accounts[key].treatment === 'pasivos');
-
-  activosAccounts.forEach(key => {
-    if (!accountsOrder.activos.includes(key)) {
-      accountsOrder.activos.push(key);
+/* Restaura el estado de la app a partir del objeto de respaldo */
+function restoreAppState(state) {
+  try {
+    if (!state) return;
+    // Ejemplo: restaurar lista de personas si viene en el respaldo
+    if (Array.isArray(state.personas)) {
+      people = state.personas.map(p => {
+        if (!p.id) p.id = uid();
+        if (!p.activities) p.activities = {};
+        return p;
+      });
+      save();
+      render(searchInput.value);
+      updateOptionsBar();
     }
-  });
-  pasivosAccounts.forEach(key => {
-    if (!accountsOrder.pasivos.includes(key)) {
-      accountsOrder.pasivos.push(key);
-    }
-  });
-
-  accountsOrder.activos = accountsOrder.activos.filter(key => accounts[key]);
-  accountsOrder.pasivos = accountsOrder.pasivos.filter(key => accounts[key]);
-  
-  const transbankValue = salonSales
-    .filter(sale => sale.paymentType === 'credito' || sale.paymentType === 'debito')
-    .filter(sale => !sale.paid)
-    .reduce((sum, sale) => sum + sale.netAmount, 0);
-  
-  accountsOrder.activos.forEach(accountKey => {
-    const accountData = accounts[accountKey];
-    const div = createAccountElement(accountKey, accountData, activosList);
-    activosTotal += accountData.balance;
-  });
-  
-  // Add transbank value to activosTotal
-  activosTotal += transbankValue;
-
-  accountsOrder.pasivos.forEach(accountKey => {
-    const accountData = accounts[accountKey];
-    const div = createAccountElement(accountKey, accountData, pasivosList);
-    pasivosTotal += accountData.balance;
-  });
-
-  // Add DIFERENCIA SEMANAL FIGARO value to pasivosTotal as a negative value
-  const diferenciaSemanalElement = document.querySelector('.data-box:nth-child(2) .data-content p');
-  if (diferenciaSemanalElement) {
-    const diferenciaSemanalValue = parseFloat(diferenciaSemanalElement.textContent.replace(/[^0-9-]/g, ''));
-    if (!isNaN(diferenciaSemanalValue)) {
-      // Add as negative value since it represents a cost/expense
-      pasivosTotal += -Math.abs(diferenciaSemanalValue);
-    }
+    // Añade aquí la lógica para restaurar otros campos/configuraciones según lo guardado.
+  } catch (err) {
+    console.error("Error restaurando estado de la app:", err);
+    alert("Error al aplicar el respaldo en la aplicación.");
   }
-  
-  document.getElementById('activosTotal').textContent = formatCurrency(activosTotal);
-  document.getElementById('pasivosTotal').textContent = formatCurrency(pasivosTotal);
-
-  [activosList, pasivosList].forEach(container => {
-    container.addEventListener('dragover', handleDragOver);
-    container.addEventListener('drop', handleDrop);
-    container.addEventListener('dragenter', handleDragEnter);
-    container.addEventListener('dragleave', handleDragLeave);
-  });
 }
 
-function createAccountElement(accountKey, accountData, container) {
-  const div = document.createElement('div');
-  div.className = `account-item ${accountKey === selectedAccount ? 'selected' : ''}`;
-  div.draggable = true;
-  div.setAttribute('data-account', accountKey);
-  
-  let warningIcon = '';
-  if (accountData.isSettled) {
-    const hasUnsettledTransactions = transactions.some(t => 
-      t.account === accountKey && !t.settled && !t.locked
-    );
-    const hasLockedUnsettledTransactions = transactions.some(t => 
-      t.account === accountKey && t.locked && !t.settled
-    );
-    if (hasUnsettledTransactions || hasLockedUnsettledTransactions) {
-      warningIcon = '<span class="warning-icon">⚠️</span>';
-    }
+/* Asegura un access token para Drive y ejecuta callback cuando lo hay */
+function ensureDriveAccessToken(callback) {
+  if (driveAccessToken) {
+    callback();
+    return;
   }
-  
-  div.innerHTML = `
-    <div class="account-name-container">
-      ${warningIcon}
-      <span class="account-name editable">${accountData.displayName}</span>
-    </div>
-    <span class="account-balance">${formatCurrency(accountData.balance)}</span>
-  `;
-  
-  const accountNameElement = div.querySelector('.account-name');
-  accountNameElement.addEventListener('dblclick', () => {
-    makeAccountNameEditable(div, accountKey);
-  });
-  
-  div.addEventListener('click', () => {
-    selectedTransactionId = null;
-    const previousSelected = document.querySelector('.account-item.selected');
-    if (previousSelected) {
-      previousSelected.classList.remove('selected');
+  if (!driveTokenClient) {
+    console.error("Token client de Drive no inicializado");
+    alert("No se pudo inicializar el cliente de Drive. Intenta recargar la página.");
+    return;
+  }
+  driveTokenClient.requestAccessToken({ prompt: "consent" });
+  const checkInterval = setInterval(() => {
+    if (driveAccessToken) {
+      clearInterval(checkInterval);
+      callback();
     }
-    
-    if (selectedAccount === accountKey) {
-      selectedAccount = null;
-      updateAccountButtons();
-    } else {
-      selectedAccount = accountKey;
-      div.classList.add('selected');
-      updateAccountButtons();
-    }
-    
-    updateTransactionsList();
-  });
-
-  div.addEventListener('dragstart', handleDragStart);
-  div.addEventListener('dragend', handleDragEnd);
-  
-  container.appendChild(div);
-  return div;
+  }, 500);
 }
 
-function makeAccountNameEditable(accountElement, accountKey) {
-  const nameElement = accountElement.querySelector('.account-name');
-  const currentName = accounts[accountKey].displayName;
-  
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.value = currentName;
-  input.className = 'edit-account-name';
-  input.style.width = '100%';
-  input.style.padding = '4px';
-  input.style.border = '1px solid #3498db';
-  input.style.borderRadius = '4px';
-  
-  nameElement.replaceWith(input);
-  input.focus();
+/* Construye nombre de archivo para respaldo: YYYY-MM-DD-RESPALDO-REGPUB.json */
+function buildBackupFileName() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const HH = String(now.getHours()).padStart(2, "0");
+  const Min = String(now.getMinutes()).padStart(2, "0");
+  // Format: YYYY-MM-DD_HH.MM-RESPALDO-REGPUB
+  return `${yyyy}-${mm}-${dd}_${HH}.${Min}-RESPALDO-REGPUB`;
+}
 
-  function saveEdit() {
-    const newName = input.value.trim();
-    if (newName) {
-      const newAccountKey = newName.toLowerCase();
-      
-      if (accounts[newAccountKey] && newAccountKey !== accountKey) {
-        alert('Ya existe una cuenta con este nombre');
-        input.value = currentName;
+/* Guarda respaldo en la carpeta DRIVE_FOLDER_ID usando Drive REST upload multipart */
+function saveBackupToDrive() {
+  if (!window.currentGoogleUser) {
+    alert("Primero debes iniciar sesión con Google.");
+    return;
+  }
+  ensureDriveAccessToken(async () => {
+    try {
+      const appState = getAppState();
+      const fileName = buildBackupFileName();
+      const metadata = { name: fileName, mimeType: "application/json", parents: [DRIVE_FOLDER_ID] };
+      const form = new FormData();
+      form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
+      form.append("file", new Blob([JSON.stringify(appState)], { type: "application/json" }));
+      const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + driveAccessToken },
+        body: form
+      });
+      if (!response.ok) {
+        console.error("Error al guardar respaldo en Drive", await response.text());
+        alert("Error al guardar respaldo en Google Drive.");
         return;
       }
-      
-      const accountData = accounts[accountKey];
-      delete accounts[accountKey];
-      accounts[newAccountKey] = {
-        ...accountData,
-        displayName: newName
-      };
-      
-      transactions.forEach(transaction => {
-        if (transaction.account === accountKey) {
-          transaction.account = newAccountKey;
-        }
-        if (transaction.destinationAccount === accountKey) {
-          transaction.destinationAccount = newAccountKey;
-        }
-      });
-      
-      if (selectedAccount === accountKey) {
-        selectedAccount = newAccountKey;
-      }
-      
-      ['activos', 'pasivos'].forEach(treatment => {
-        const index = accountsOrder[treatment].indexOf(accountKey);
-        if (index !== -1) {
-          accountsOrder[treatment][index] = newAccountKey;
-        }
-      });
-      
-      saveToLocalStorage();
-      updateAccountsList();
-      updateAccountSelectors();
-      updateTransactionsList();
-    }
-    
-    const newNameElement = document.createElement('span');
-    newNameElement.className = 'account-name editable';
-    newNameElement.textContent = newName || currentName;
-    safeReplaceWith(input, newNameElement);
-    
-    newNameElement.addEventListener('dblclick', () => {
-      makeAccountNameEditable(accountElement, newName.toLowerCase() || accountKey);
-    });
-  }
-  
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveEdit();
+      alert("Respaldo guardado correctamente en Google Drive.");
+    } catch (err) {
+      console.error("Error guardando respaldo en Drive:", err);
+      alert("Error al guardar respaldo en Google Drive.");
     }
   });
-  
-  input.addEventListener('blur', saveEdit);
 }
 
-function handleDragStart(e) {
-  e.target.classList.add('dragging');
-  e.dataTransfer.setData('text/plain', e.target.getAttribute('data-account'));
-}
-
-function handleDragEnd(e) {
-  e.target.classList.remove('dragging');
-}
-
-function handleDragOver(e) {
-  e.preventDefault();
-}
-
-function handleDragEnter(e) {
-  e.preventDefault();
-  if (e.target.classList.contains('accounts-list')) {
-    e.target.classList.add('drag-over');
-  }
-}
-
-function handleDragLeave(e) {
-  if (e.target.classList.contains('accounts-list')) {
-    e.target.classList.remove('drag-over');
-  }
-}
-
-function handleDrop(e) {
-  e.preventDefault();
-  
-  const accountKey = e.dataTransfer.getData('text/plain');
-  const draggedElement = document.querySelector(`[data-account="${accountKey}"]`);
-  const dropZone = e.target.closest('.accounts-list');
-  
-  if (!dropZone || !draggedElement) return;
-  
-  dropZone.classList.remove('drag-over');
-  
-  const isSameContainer = draggedElement.parentNode === dropZone;
-  const treatment = dropZone.id === 'activosList' ? 'activos' : 'pasivos';
-  
-  const siblings = Array.from(dropZone.children);
-  const dropTarget = e.target.closest('.account-item');
-  const dropIndex = dropTarget ? siblings.indexOf(dropTarget) : siblings.length;
-  
-  accountsOrder[accounts[accountKey].treatment] = accountsOrder[accounts[accountKey].treatment].filter(key => key !== accountKey);
-  
-  if (!isSameContainer) {
-    accounts[accountKey].treatment = treatment;
-  }
-  
-  accountsOrder[treatment].splice(dropIndex, 0, accountKey);
-  
-  updateAccountsList();
-  updateTotalBalance();
-  saveToLocalStorage();
-}
-
-function updateTransactionsList() {
-  const transactionsList = document.getElementById('transactionsList');
-  transactionsList.innerHTML = '';
-  
-  if (!selectedAccount) {
-    transactionsList.innerHTML = '<p style="text-align: center; color: #666;">Seleccione una cuenta para ver sus movimientos</p>';
-    return;
-  }
-  
-  const buttonContainer = document.createElement('div');
-  buttonContainer.style.position = 'absolute';
-  buttonContainer.style.top = '20px';
-  buttonContainer.style.right = '20px';
-  
-  if (accounts[selectedAccount].type === 'credito') {
-    const toggleAllSettledBtn = document.createElement('button');
-    toggleAllSettledBtn.className = 'toggle-all-settled-btn';
-    
-    const accountTransactions = transactions.filter(t => t.account === selectedAccount);
-    const allSettled = accountTransactions.length > 0 && 
-                      accountTransactions.every(t => t.settled);
-    
-    toggleAllSettledBtn.textContent = allSettled ? 'Reactivar Todo' : 'Saldar Todo';
-    toggleAllSettledBtn.onclick = () => {
-      toggleAllTransactionsSettlement(selectedAccount);
-    };
-    buttonContainer.appendChild(toggleAllSettledBtn);
-
-    const addInstallmentBtn = document.createElement('button');
-    addInstallmentBtn.className = 'add-installment-btn';
-    addInstallmentBtn.textContent = '+ Cuota';
-    addInstallmentBtn.onclick = () => {
-      addNewInstallment(selectedAccount);
-    };
-    buttonContainer.appendChild(addInstallmentBtn);
-  }
-  
-  const clearAllBtn = document.createElement('button');
-  clearAllBtn.className = 'clear-all-btn';
-  clearAllBtn.textContent = 'Borrar todo';
-  clearAllBtn.onclick = () => {
-    if (confirm(`¿Está seguro que desea eliminar todas las transacciones de la cuenta "${accounts[selectedAccount].displayName}"?`)) {
-      clearAllTransactions(selectedAccount);
-    }
-  };
-  
-  buttonContainer.appendChild(clearAllBtn);
-  transactionsList.appendChild(buttonContainer);
-  
-  let accountTransactions = transactions
-    .filter(t => t.account === selectedAccount);
-
-  if (transactionsOrder.length) {
-    accountTransactions.sort((a, b) => {
-      const indexA = transactionsOrder.indexOf(a.id);
-      const indexB = transactionsOrder.indexOf(b.id);
-      return indexA - indexB;
-    });
-  }
-
-  accountTransactions.forEach(transaction => {
-    if (!transactionsOrder.includes(transaction.id)) {
-      transactionsOrder.push(transaction.id);
-    }
-  });
-
-  if (accountTransactions.length === 0) {
-    transactionsList.innerHTML = '<p style="text-align: center; color: #666;">No hay movimientos para esta cuenta</p>';
-    return;
-  }
-
-  accountTransactions.forEach(transaction => {
-    const div = document.createElement('div');
-    div.className = `transaction-item ${transaction.type} ${transaction.settled ? 'settled' : ''} ${transaction.id === selectedTransactionId ? 'selected' : ''}`;
-    div.draggable = true;
-    div.setAttribute('data-transaction-id', transaction.id);
-    const accountDisplayName = accounts[transaction.account]?.displayName || transaction.account;
-    
-    let buttonsHtml = `<button class="delete-transaction-btn" data-id="${transaction.id}" ${transaction.locked ? 'disabled' : ''}>Eliminar</button>`;
-    
-    if (accounts[selectedAccount].isSettled) {
-      buttonsHtml = `
-        <button class="settled-transaction-btn ${transaction.settled ? 'active' : ''}" data-id="${transaction.id}">
-          Saldado
-        </button>
-        ${buttonsHtml}
-      `;
-    }
-    
-    let installmentHtml = '';
-    if (accounts[selectedAccount].type === 'credito' && transaction.currentInstallment && transaction.totalInstallments) {
-      installmentHtml = `
-        <span class="installment-info">
-          <div class="installment-controls">
-            <span class="installment-number">
-              ${transaction.currentInstallment}/${transaction.totalInstallments}
-            </span>
-            <div class="installment-arrows">
-              <button class="installment-arrow" data-id="${transaction.id}" data-action="up" 
-                      ${transaction.currentInstallment >= transaction.totalInstallments ? 'disabled' : ''}>
-                ▲
-              </button>
-              <button class="installment-arrow" data-id="${transaction.id}" data-action="down"
-                      ${transaction.currentInstallment <= 1 ? 'disabled' : ''}>
-                ▼
-              </button>
-            </div>
-          </div>
-        </span>
-      `;
-    }
-    
-    div.innerHTML = `
-      <button class="lock-transaction-btn ${transaction.locked ? 'locked' : ''}" data-id="${transaction.id}">
-        ${transaction.locked ? '🔒' : '🔓'}
-      </button>
-      <span>${new Date(transaction.date).toLocaleDateString()}</span>
-      <span class="transaction-description editable">${transaction.description}</span>
-      ${installmentHtml}
-      <span>${accountDisplayName}</span>
-      <span class="transaction-amount editable">
-        ${formatCurrency(transaction.amount)}
-        ${accounts[transaction.account]?.type === 'dolar' && transaction.usdAmount ? 
-          `<span class="usd-amount-indicator">USD ${transaction.usdAmount.toFixed(2)}</span>` 
-          : ''}
-      </span>
-      <div class="transaction-buttons">
-        ${buttonsHtml}
-      </div>
-    `;
-
-    const descriptionSpan = div.querySelector('.transaction-description');
-    const amountSpan = div.querySelector('.transaction-amount');
-    
-    descriptionSpan.addEventListener('dblclick', () => {
-      makeTransactionFieldEditable(div, transaction.id, 'description');
-    });
-    
-    amountSpan.addEventListener('dblclick', () => {
-      makeTransactionFieldEditable(div, transaction.id, 'amount');
-    });
-
-    div.addEventListener('click', (e) => {
-      if (!e.target.classList.contains('delete-transaction-btn') && 
-          !e.target.classList.contains('settled-transaction-btn') &&
-          !e.target.classList.contains('edit-transaction-description')) {
-        
-        const previousSelected = document.querySelector('.transaction-item.selected');
-        if (previousSelected) {
-          previousSelected.classList.remove('selected');
-        }
-        
-        if (selectedTransactionId === transaction.id) {
-          selectedTransactionId = null;
-          div.classList.remove('selected');
-        } else {
-          selectedTransactionId = transaction.id;
-          div.classList.add('selected');
-        }
-      }
-    });
-    
-    div.addEventListener('dragstart', handleTransactionDragStart);
-    div.addEventListener('dragend', handleTransactionDragEnd);
-    div.addEventListener('dragover', handleTransactionDragOver);
-    div.addEventListener('drop', handleTransactionDrop);
-    
-    transactionsList.appendChild(div);
-  });
-  
-  updateAccountBalance(selectedAccount);
-}
-
-function clearAllTransactions(accountKey) {
-  selectedTransactionId = null;
-  const accountTransactions = transactions.filter(t => t.account === accountKey && !t.locked);
-  
-  accounts[accountKey].balance = 0;
-  
-  transactions = transactions.filter(t => t.account !== accountKey || t.locked);
-  
-  const lockedTransactions = transactions.filter(t => t.account === accountKey && t.locked);
-  lockedTransactions.forEach(t => {
-    if (t.type === 'ingreso') {
-      accounts[accountKey].balance += t.amount;
-    } else if (t.type === 'gasto') {
-      accounts[accountKey].balance -= t.amount;
-    }
-  });
-  
-  updateTotalBalance();
-  updateAccountsList();
-  updateTransactionsList();
-  saveToLocalStorage();
-}
-
-function toggleTransactionSettlement(transactionId) {
-  const transaction = transactions.find(t => t.id === transactionId);
-  if (!transaction) return;
-  
-  transaction.settled = !transaction.settled;
-  
-  updateAccountBalance(transaction.account);
-  updateTotalBalance();
-  updateAccountsList();
-  
-  const transactionElement = document.querySelector(`[data-transaction-id="${transactionId}"]`);
-  if (transactionElement) {
-    transactionElement.classList.toggle('settled', transaction.settled);
-    const settledBtn = transactionElement.querySelector('.settled-transaction-btn');
-    if (settledBtn) {
-      settledBtn.classList.toggle('active', transaction.settled);
-    }
-  }
-  
-  saveToLocalStorage();
-}
-
-function updateAccountBalance(accountKey) {
-  if (!accountKey || !accounts[accountKey]) return;
-  
-  const accountTransactions = transactions.filter(t => t.account === accountKey);
-  let balance = 0;
-  
-  accountTransactions.forEach(transaction => {
-    if (transaction.settled) return;
-    
-    if (transaction.type === 'ingreso') {
-      balance += transaction.amount;
-    } else if (transaction.type === 'gasto') {
-      balance -= transaction.amount;
-    }
-  });
-  
-  accounts[accountKey].balance = balance;
-  saveToLocalStorage();
-}
-
-function makeTransactionFieldEditable(transactionElement, transactionId, fieldType) {
-  const fieldSpan = transactionElement.querySelector(`.transaction-${fieldType}`);
-  let currentValue = fieldSpan.textContent;
-  
-  if (fieldType === 'amount') {
-    currentValue = currentValue.replace(/[^0-9.-]+/g, "");
-  }
-  
-  const input = document.createElement('input');
-  input.type = fieldType === 'amount' ? 'number' : 'text';
-  if (fieldType === 'amount') {
-    input.step = '0.01';
-    input.min = '0';
-  }
-  input.value = currentValue;
-  input.className = `edit-transaction-${fieldType}`;
-  input.style.width = '100%';
-  input.style.padding = '4px';
-  input.style.border = '1px solid #3498db';
-  input.style.borderRadius = '4px';
-  
-  safeReplaceWith(fieldSpan, input);
-  input.focus();
-
-  function saveEdit() {
-    const newValue = input.value.trim();
-    if (newValue) {
-      const transaction = transactions.find(t => t.id === transactionId);
-      if (transaction) {
-        if (fieldType === 'amount') {
-          if (transaction.type === 'ingreso') {
-            accounts[transaction.account].balance -= transaction.amount;
-          } else if (transaction.type === 'gasto') {
-            accounts[transaction.account].balance += transaction.amount;
-          }
-          
-          transaction.amount = parseFloat(newValue);
-          
-          if (transaction.type === 'ingreso') {
-            accounts[transaction.account].balance += transaction.amount;
-          } else if (transaction.type === 'gasto') {
-            accounts[transaction.account].balance -= transaction.amount;
-          }
-          
-          updateTotalBalance();
-          updateAccountsList();
-        } else {
-          transaction[fieldType] = newValue;
-        }
-        saveToLocalStorage();
-      }
-    }
-    
-    const newSpan = document.createElement('span');
-    newSpan.className = `transaction-${fieldType} editable`;
-    newSpan.textContent = fieldType === 'amount' ? formatCurrency(parseFloat(newValue)) : (newValue || currentValue);
-    safeReplaceWith(input, newSpan);
-    
-    newSpan.addEventListener('dblclick', () => {
-      makeTransactionFieldEditable(transactionElement, transactionId, fieldType);
-    });
-  }
-  
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveEdit();
-    }
-  });
-  
-  input.addEventListener('blur', saveEdit);
-}
-
-function toggleAllTransactionsSettlement(accountKey) {
-  const accountTransactions = transactions.filter(t => t.account === accountKey);
-  
-  const allSettled = accountTransactions.length > 0 && 
-                    accountTransactions.every(t => t.settled);
-  
-  accountTransactions.forEach(transaction => {
-    transaction.settled = !allSettled;
-  });
-  
-  updateAccountBalance(accountKey);
-  updateTotalBalance();
-  updateAccountsList(); 
-  updateTransactionsList();
-  saveToLocalStorage();
-}
-
-function updateAccountSelectors() {
-  const accountSelects = document.querySelectorAll('#account, #destinationAccount');
-  accountSelects.forEach(select => {
-    const currentValue = select.value;
-    select.innerHTML = '';
-    
-    const accountEntries = Object.entries(accounts);
-    
-    if (accountEntries.length === 0) {
-      const option = document.createElement('option');
-      option.value = "";
-      option.textContent = "No hay cuentas disponibles";
-      option.disabled = true;
-      select.appendChild(option);
-    } else {
-      const promptOption = document.createElement('option');
-      promptOption.value = "";
-      promptOption.textContent = "Seleccione una cuenta";
-      select.appendChild(promptOption);
-      
-      accountEntries.forEach(([accountKey, accountData]) => {
-        const option = document.createElement('option');
-        option.value = accountKey;
-        option.textContent = accountData.displayName;
-        select.appendChild(option);
-      });
-    }
-    
-    if (accounts[currentValue]) {
-      select.value = currentValue;
-    } else {
-      select.value = '';
-    }
-  });
-  
-  const transactionForm = document.getElementById('transactionForm');
-  const submitButton = transactionForm.querySelector('button[type="submit"]');
-  const accountSelect = document.getElementById('account');
-  
-  if (Object.keys(accounts).length === 0) {
-    accountSelect.value = "";
-    submitButton.disabled = true;
-    submitButton.title = "Debe crear al menos una cuenta para registrar transacciones";
-  } else {
-    submitButton.disabled = false;
-    submitButton.title = "";
-  }
-}
-
-function accountFormEventHandler(e) {
-  e.preventDefault();
-  
-  const isEditing = document.getElementById('isEditing').value === 'true';
-  const accountName = document.getElementById('accountName').value.trim();
-  const accountKey = accountName.toLowerCase();
-  const accountType = document.getElementById('accountType').value;
-  const accountTreatment = document.getElementById('accountTreatment').value;
-  const initialBalance = parseFloat(document.getElementById('initialBalance').value);
-  const isSettled = document.getElementById('isSettled').checked;
-  
-  if (!isEditing && accounts[accountKey]) {
-    alert('Esta cuenta ya existe');
-    return;
-  }
-  
-  if (isEditing) {
-    const oldAccountData = accounts[selectedAccount];
-    delete accounts[selectedAccount];
-    accounts[accountKey] = {
-      ...oldAccountData,
-      displayName: accountName
-    };
-    selectedAccount = accountKey;
-  } else {
-    accounts[accountKey] = {
-      balance: initialBalance,
-      type: accountType,
-      treatment: accountTreatment,
-      description: '',
-      displayName: accountName,
-      isSettled: isSettled
-    };
-    
-    if (initialBalance !== 0) {
-      addTransaction({
-        amount: Math.abs(initialBalance),
-        type: initialBalance > 0 ? 'ingreso' : 'gasto',
-        account: accountKey,
-        description: 'Saldo inicial'
-      });
-    }
-  }
-  
-  updateAccountsList();
-  updateAccountSelectors();
-  saveToLocalStorage();
-  
-  modal.style.display = 'none';
-  accountForm.reset();
-}
-
-const modal = document.getElementById('accountModal');
-const addAccountBtn = document.querySelector('.add-account-btn');
-const deleteAccountBtn = document.querySelector('.delete-account-btn');
-const closeBtn = document.querySelector('.close');
-const accountForm = document.getElementById('accountForm');
-
-function openModal(isEditing = false) {
-  const modalTitle = document.getElementById('modalTitle');
-  const submitButton = document.getElementById('accountFormSubmit');
-  const accountNameInput = document.getElementById('accountName');
-  const accountTypeSelect = document.getElementById('accountType');
-  const treatmentSelect = document.getElementById('accountTreatment');
-  const balanceInput = document.getElementById('initialBalance');
-  const isSettledCheckbox = document.getElementById('isSettled');
-  document.getElementById('isEditing').value = false;
-  
-  modalTitle.textContent = 'Nueva Cuenta';
-  submitButton.textContent = 'Crear Cuenta';
-  accountNameInput.disabled = false;
-  accountTypeSelect.disabled = false;
-  treatmentSelect.disabled = false;
-  balanceInput.disabled = false;
-  isSettledCheckbox.disabled = false;
-  accountForm.reset();
-  
-  modal.style.display = 'block';
-}
-
-addAccountBtn.onclick = () => openModal(false);
-
-deleteAccountBtn.onclick = () => {
-  if (!selectedAccount) return;
-  
-  if (confirm(`¿Está seguro que desea eliminar la cuenta "${selectedAccount}"?`)) {
-    transactions = transactions.filter(t => t.account !== selectedAccount);
-    
-    delete accounts[selectedAccount];
-    selectedAccount = null;
-    
-    updateAccountsList();
-    updateAccountButtons();
-    updateAccountSelectors(); 
-    updateTransactionsList(); 
-    saveToLocalStorage();
-  }
-};
-
-closeBtn.onclick = () => {
-  modal.style.display = 'none';
-  accountForm.reset();
-};
-
-window.onclick = (event) => {
-  if (event.target === modal) {
-    modal.style.display = 'none';
-    accountForm.reset();
-  }
-};
-
-accountForm.addEventListener('submit', accountFormEventHandler);
-
-function saveToLocalStorage() {
-  localStorage.setItem('finanzasAccounts', JSON.stringify(accounts));
-  localStorage.setItem('finanzasTransactions', JSON.stringify(transactions));
-  localStorage.setItem('finanzasAccountsOrder', JSON.stringify(accountsOrder));
-  localStorage.setItem('finanzasTransactionsOrder', JSON.stringify(transactionsOrder));
-  localStorage.setItem('figaro_indicators', JSON.stringify(figaroIndicators));
-}
-
-function loadFromLocalStorage() {
-  const savedAccounts = localStorage.getItem('finanzasAccounts');
-  const savedTransactions = localStorage.getItem('finanzasTransactions');
-  const savedAccountsOrder = localStorage.getItem('finanzasAccountsOrder');
-  const savedTransactionsOrder = localStorage.getItem('finanzasTransactionsOrder');
-  const savedIndicators = localStorage.getItem('figaro_indicators');
-  
-  if (savedAccounts) accounts = JSON.parse(savedAccounts);
-  if (savedTransactions) transactions = JSON.parse(savedTransactions);
-  if (savedAccountsOrder) accountsOrder = JSON.parse(savedAccountsOrder);
-  if (savedTransactionsOrder) transactionsOrder = JSON.parse(savedTransactionsOrder);
-  if (savedIndicators) figaroIndicators = JSON.parse(savedIndicators);
-  
-  updateTotalBalance();
-  updateAccountsList();
-  updateTransactionsList();
-  updateAccountSelectors();
-  
-  updateBalanceIndicators();
-  setInterval(updateBalanceIndicators, 60000);
-  
-  const today = new Date();
-  today.setMinutes(today.getMinutes() + today.getTimezoneOffset());
-  document.getElementById('date').valueAsDate = today;
-  
-  updateBalanceIndicators();
-  setInterval(updateBalanceIndicators, 60000);
-  updateFigaroIndicatorsPanel(); // Call updateFigaroIndicatorsPanel first
-  updateTotalBalance();       // Then call updateTotalBalance to use the updated indicator value
-}
-
-function addTransaction(transaction) {
-  // Validate amount is a valid number
-  if (!transaction.amount || isNaN(transaction.amount)) {
-    return; // Exit if amount is invalid
-  }
-
-  const transactionData = {
-    ...transaction,
-    id: Date.now(),
-    date: new Date(`${transaction.date}T00:00:00`), 
-    settled: false,
-    locked: false,
-    currentInstallment: accounts[transaction.account].type === 'credito' ? 
-      parseInt(document.getElementById('currentInstallment').value) || 1 : null,
-    totalInstallments: accounts[transaction.account].type === 'credito' ? 
-      parseInt(document.getElementById('totalInstallments').value) || 1 : null,
-    usdAmount: accounts[transaction.account].type === 'dolar' ? 
-      parseFloat(document.getElementById('usdAmount').value) || null : null
-  };
-  
-  if (transaction.type === 'transferencia') {
-    const withdrawalTransaction = {
-      ...transactionData,
-      type: 'gasto',
-      description: `Transferencia a ${accounts[transaction.destinationAccount].displayName}: ${transaction.description}`
-    };
-    transactions.push(withdrawalTransaction);
-    accounts[transaction.account].balance -= transaction.amount;
-    
-    const depositTransaction = {
-      ...transactionData,
-      type: 'ingreso',
-      account: transaction.destinationAccount,
-      description: `Transferencia desde ${accounts[transaction.account].displayName}: ${transaction.description}`
-    };
-    transactions.push(depositTransaction);
-    accounts[transaction.destinationAccount].balance += transaction.amount;
-  } else {
-    transactions.push(transactionData);
-    if (transaction.type === 'ingreso') {
-      accounts[transaction.account].balance += transaction.amount;
-    } else if (transaction.type === 'gasto') {
-      accounts[transaction.account].balance -= transaction.amount;
-    }
-  }
-  
-  updateTotalBalance();
-  updateAccountsList();
-  updateTransactionsList();
-  saveToLocalStorage();
-}
-
-function deleteTransaction(transactionId) {
-  selectedTransactionId = null;
-  const transaction = transactions.find(t => t.id === transactionId);
-  if (!transaction) return;
-  
-  if (transaction.type === 'ingreso') {
-    accounts[transaction.account].balance -= transaction.amount;
-  } else if (transaction.type === 'gasto') {
-    accounts[transaction.account].balance += transaction.amount;
-  }
-  
-  transactions = transactions.filter(t => t.id !== transactionId);
-  
-  updateTotalBalance();
-  updateAccountsList();
-  updateTransactionsList();
-  saveToLocalStorage();
-}
-
-function updateTransactionInstallment(transactionId, action) {
-  const transaction = transactions.find(t => t.id === transactionId);
-  if (!transaction) return;
-  
-  if (action === 'up' && transaction.currentInstallment < transaction.totalInstallments) {
-    transaction.currentInstallment++;
-  } else if (action === 'down' && transaction.currentInstallment > 1) {
-    transaction.currentInstallment--;
-  }
-  
-  saveToLocalStorage();
-  updateTransactionsList();
-}
-
-function addNewInstallment(accountKey) {
-  let installmentTransactions = transactions.filter(t => 
-    t.account === accountKey && 
-    t.currentInstallment && 
-    t.totalInstallments &&
-    t.currentInstallment < t.totalInstallments &&
-    !t.settled 
-  );
-  
-  installmentTransactions.forEach(transaction => {
-    transaction.currentInstallment++;
-    
-    if (transaction.currentInstallment >= transaction.totalInstallments) {
-      transaction.settled = true;
-    }
-  });
-  
-  saveToLocalStorage();
-  updateTransactionsList();
-  updateAccountsList(); 
-}
-
-document.getElementById('transactionForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  
-  const amount = parseFloat(document.getElementById('amount').value);
-  
-  // Validate amount before proceeding
-  if (!amount || isNaN(amount)) {
-    return; // Don't submit if amount is invalid
-  }
-
-  const currentAccount = document.getElementById('account').value;
-  const currentType = document.getElementById('type').value;
-  
-  const transaction = {
-    date: document.getElementById('date').value,
-    amount: amount, // Use validated amount
-    type: currentType,
-    account: currentAccount,
-    description: document.getElementById('description').value
-  };
-  
-  if (transaction.type === 'transferencia') {
-    transaction.destinationAccount = document.getElementById('destinationAccount').value;
-    if (!transaction.destinationAccount) {
-      alert('Por favor seleccione una cuenta de destino');
-      return;
-    }
-    if (transaction.destinationAccount === transaction.account) {
-      alert('La cuenta de origen y destino no pueden ser la misma');
-      return;
-    }
-  }
-  
-  addTransaction(transaction);
-  
-  document.getElementById('description').value = '';
-  document.getElementById('amount').value = '';
-  document.getElementById('usdAmount').value = ''; 
-  document.getElementById('currentInstallment').value = ''; 
-  document.getElementById('totalInstallments').value = ''; 
-  
-  const destinationAccountGroup = document.getElementById('destinationAccountGroup');
-  destinationAccountGroup.style.display = 'none';
-  document.getElementById('destinationAccount').disabled = true;
-  document.getElementById('destinationAccount').required = false;
-  document.getElementById('destinationAccount').value = '';
-  
-  document.getElementById('date').valueAsDate = new Date();
-  
-  document.querySelectorAll('.type-button').forEach(btn => {
-    if (btn.dataset.type === currentType) {
-      btn.classList.add('selected');
-    } else {
-      btn.classList.remove('selected');
-    }
-  });
-});
-
-document.getElementById('amount').addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    const amount = parseFloat(e.target.value);
-    if (!amount || isNaN(amount)) {
-      return; // Don't submit if amount is invalid
-    }
-    document.getElementById('transactionForm').requestSubmit();
-  }
-});
-
-document.getElementById('transactionsList').addEventListener('click', (e) => {
-  if (e.target.classList.contains('delete-transaction-btn')) {
-    const transactionId = parseInt(e.target.dataset.id);
-    if (confirm('¿Está seguro que desea eliminar esta transacción?')) {
-      deleteTransaction(transactionId);
-    }
-  } else if (e.target.classList.contains('settled-transaction-btn')) {
-    const transactionId = parseInt(e.target.dataset.id);
-    toggleTransactionSettlement(transactionId);
-    updateTransactionsList();
-  } else if (e.target.classList.contains('installment-arrow')) {
-    const transactionId = parseInt(e.target.dataset.id);
-    const action = e.target.dataset.action;
-    updateTransactionInstallment(transactionId, action);
-  } else if (e.target.classList.contains('lock-transaction-btn')) {
-    const transactionId = parseInt(e.target.dataset.id);
-    toggleTransactionLock(transactionId);
-  }
-});
-
-function handleTransactionDragStart(e) {
-  e.target.classList.add('dragging');
-  e.dataTransfer.setData('text/plain', e.target.getAttribute('data-transaction-id'));
-}
-
-function handleTransactionDragEnd(e) {
-  e.target.classList.remove('dragging');
-  updateTransactionsOrder();
-}
-
-function handleTransactionDragOver(e) {
-  e.preventDefault();
-  const draggedElement = document.querySelector('.transaction-item.dragging');
-  if (!draggedElement) return;
-
-  const transactionsList = document.getElementById('transactionsList');
-  const siblings = [...transactionsList.querySelectorAll('.transaction-item:not(.dragging)')];
-
-  const nextSibling = siblings.find(sibling => {
-    const box = sibling.getBoundingClientRect();
-    const offset = e.clientY - box.top - box.height / 2;
-    return offset < 0;
-  });
-
-  if (nextSibling) {
-    transactionsList.insertBefore(draggedElement, nextSibling);
-  } else {
-    transactionsList.appendChild(draggedElement);
-  }
-}
-
-function handleTransactionDrop(e) {
-  e.preventDefault();
-  const draggedId = parseInt(e.dataTransfer.getData('text/plain'));
-  const items = document.querySelectorAll('.transaction-item');
-  const newOrder = Array.from(items).map(item => 
-    parseInt(item.getAttribute('data-transaction-id'))
-  );
-  
-  // Update transactions order
-  transactionsOrder = newOrder;
-  
-  // Get current selected account
-  const currentAccount = selectedAccount;
-  
-  // Check if this is a TCR account and transaction is locked
-  if (currentAccount && 
-      currentAccount.toLowerCase().startsWith('tcr') && 
-      accounts[currentAccount].treatment === 'pasivos') {
-    
-    const transaction = transactions.find(t => t.id === draggedId);
-    if (transaction && transaction.locked) {
-      // Re-render TCR projection to reflect new order
-      if (document.getElementById('tcrProjectionModal').style.display === 'block') {
-        showTCRProjection();
-      }
-    }
-  }
-  
-  saveToLocalStorage();
-}
-
-function updateTransactionsOrder() {
-  const transactionItems = document.querySelectorAll('.transaction-item');
-  const newOrder = Array.from(transactionItems).map(item => 
-    parseInt(item.getAttribute('data-transaction-id'))
-  );
-  
-  transactionsOrder = newOrder;
-  
-  saveToLocalStorage();
-}
-
-function toggleTransactionLock(transactionId) {
-  const transaction = transactions.find(t => t.id === transactionId);
-  if (!transaction) return;
-  
-  transaction.locked = !transaction.locked;
-  saveToLocalStorage();
-  updateTransactionsList();
-}
-
-async function updateBalanceIndicators() {
-  const now = new Date();
-  
-  // Set timezone to Punta Arenas, Chile time
-  const timeOptions = { 
-    hour: '2-digit', 
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-    timeZone: 'America/Punta_Arenas'
-  };
-  
-  const dateOptions = {
-    weekday: 'long', 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric',
-    timeZone: 'America/Punta_Arenas'
-  };
-
-  const dateStr = now.toLocaleDateString('es-CL', dateOptions);
-  const timeStr = now.toLocaleTimeString('es-CL', timeOptions);
-  
-  document.getElementById('currentDate').textContent = dateStr;
-  document.getElementById('currentTime').textContent = timeStr;
-
+/* Busca el último archivo de respaldo en la carpeta DRIVE_FOLDER_ID */
+async function findLatestBackupFileId() {
   try {
-    const response = await fetch('https://mindicador.cl/api/dolar');
+    const query = `'${DRIVE_FOLDER_ID}' in parents and name contains 'RESPALDO-REGPUB.json' and trashed = false`;
+    const url = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(query) + "&orderBy=createdTime desc&pageSize=1&fields=files(id,name,createdTime)";
+    const response = await fetch(url, { headers: { Authorization: "Bearer " + driveAccessToken } });
+    if (!response.ok) {
+      console.error("Error al buscar respaldos en Drive", await response.text());
+      return null;
+    }
     const data = await response.json();
-    const usdValue = formatCurrency(data.serie[0].valor);
-    
-    document.getElementById('currentDate').textContent = dateStr;
-    document.getElementById('currentTime').textContent = timeStr;
-    document.getElementById('usdValue').textContent = usdValue;
-
-    // Get the ingresoFaltanteValue from the figaroIndicators panel
-    const ingresoFaltanteValueElement = document.getElementById('ingresoFaltanteValue');
-    const ingresoFaltanteValue = ingresoFaltanteValueElement ?
-      parseFloat(ingresoFaltanteValueElement.textContent.replace(/[^0-9-]/g, '')) : 0;
-
-    // Update the ingresoFaltanteValue in the summary panel
-    document.getElementById('ingresoFaltanteValueSummary').textContent = formatCurrency(ingresoFaltanteValue);
-
-    // Calculate and update pronostico
-    const balanceTotal = parseFloat(document.getElementById('totalAmount').textContent.replace(/[^0-9-]/g, ''));
-    const pronostico = balanceTotal + ingresoFaltanteValue;
-    document.getElementById('pronosticoValue').textContent = formatCurrency(pronostico);
-
-  } catch (error) {
-    console.error('Error al obtener el valor del dólar:', error);
-    document.getElementById('usdValue').textContent = 'No disponible';
-    document.getElementById('ingresoFaltanteValueSummary').textContent = 'No disponible';
-    document.getElementById('pronosticoValue').textContent = 'No disponible';
+    if (!data.files || data.files.length === 0) return null;
+    return data.files[0].id;
+  } catch (err) {
+    console.error("Error en findLatestBackupFileId:", err);
+    return null;
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  loadFromLocalStorage();
-
-  const modal = document.getElementById('accountModal');
-  const addAccountBtn = document.querySelector('.add-account-btn');
-  const deleteAccountBtn = document.querySelector('.delete-account-btn');
-  const closeBtn = document.querySelector('.close');
-
-  addAccountBtn.onclick = () => openModal(false);
-
-  deleteAccountBtn.onclick = () => {
-    if (!selectedAccount) return;
-  
-    if (confirm(`¿Está seguro que desea eliminar la cuenta "${selectedAccount}"?`)) {
-      transactions = transactions.filter(t => t.account !== selectedAccount);
-      
-      delete accounts[selectedAccount];
-      selectedAccount = null;
-      
-      updateAccountsList();
-      updateAccountButtons();
-      updateAccountSelectors(); 
-      updateTransactionsList(); 
-      saveToLocalStorage();
-    }
-  };
-
-  document.getElementById('account').addEventListener('change', (e) => {
-    toggleInstallmentFields();
-    toggleUSDAmountField();
-  });
-
-  function toggleInstallmentFields() {
-    const accountSelect = document.getElementById('account');
-    const installmentFields = document.querySelector('.installment-fields');
-    const selectedAccountKey = accountSelect.value;
-    
-    if (selectedAccountKey && accounts[selectedAccountKey].type === 'credito') {
-      installmentFields.style.display = 'block';
-      document.getElementById('currentInstallment').disabled = false;
-      document.getElementById('totalInstallments').disabled = false;
-      document.getElementById('currentInstallment').required = true;
-      document.getElementById('totalInstallments').required = true;
-    } else {
-      installmentFields.style.display = 'none';
-      document.getElementById('currentInstallment').disabled = true;
-      document.getElementById('totalInstallments').disabled = true;
-      document.getElementById('currentInstallment').required = false;
-      document.getElementById('totalInstallments').required = false;
-    }
+/* Carga el último respaldo de la carpeta DRIVE_FOLDER_ID y aplica restoreAppState */
+function loadLatestBackupFromDrive() {
+  if (!window.currentGoogleUser) {
+    alert("Primero debes iniciar sesión con Google.");
+    return;
   }
-
-  function toggleUSDAmountField() {
-    const accountSelect = document.getElementById('account');
-    const usdAmountField = document.querySelector('.usd-amount-field');
-    const selectedAccountKey = accountSelect.value;
-    
-    if (selectedAccountKey && accounts[selectedAccountKey].type === 'dolar') {
-      usdAmountField.style.display = 'block';
-      document.getElementById('usdAmount').addEventListener('input', updateCLPAmount);
-    } else {
-      usdAmountField.style.display = 'none';
-      document.getElementById('usdAmount').removeEventListener('input', updateCLPAmount);
-    }
-  }
-
-  async function updateCLPAmount(e) {
+  ensureDriveAccessToken(async () => {
     try {
-      const response = await fetch('https://mindicador.cl/api/dolar');
-      const data = await response.json();
-      const usdRate = data.serie[0].valor;
-      const usdAmount = parseFloat(e.target.value) || 0;
-      const clpAmount = usdAmount * usdRate;
-      document.getElementById('amount').value = clpAmount.toFixed(2);
-    } catch (error) {
-      console.error('Error al convertir USD a CLP:', error);
-    }
-  }
-
-  document.getElementById('transactionForm').addEventListener('submit', async (e) => {
-    const accountSelect = document.getElementById('account');
-    const selectedAccountKey = accountSelect.value;
-    
-    if (accounts[selectedAccountKey]?.type === 'dolar') {
-      e.preventDefault();
-      const usdAmount = parseFloat(document.getElementById('usdAmount').value) || 0;
-      try {
-        const response = await fetch('https://mindicador.cl/api/dolar');
-        const data = await response.json();
-        const usdRate = data.serie[0].valor;
-        const clpAmount = usdAmount * usdRate;
-        document.getElementById('amount').value = clpAmount.toFixed(2);
-        document.getElementById('transactionForm').requestSubmit();
-      } catch (error) {
-        console.error('Error al obtener el tipo de cambio. Por favor intente nuevamente.');
-        alert('Error al obtener el tipo de cambio. Por favor intente nuevamente.');
+      const fileId = await findLatestBackupFileId();
+      if (!fileId) {
+        alert("No se encontró ningún respaldo en Google Drive.");
+        return;
       }
-    }
-  });
-
-  document.querySelectorAll('.type-button').forEach(button => {
-    button.addEventListener('click', (e) => {
-      e.preventDefault();
-      document.querySelectorAll('.type-button').forEach(btn => {
-        btn.classList.remove('selected');
-      });
-      button.classList.add('selected');
-      const type = button.dataset.type;
-      document.getElementById('type').value = type;
-      
-      const destinationAccountGroup = document.getElementById('destinationAccountGroup');
-      const destinationAccountSelect = document.getElementById('destinationAccount');
-      if (type === 'transferencia') {
-        destinationAccountGroup.style.display = 'block';
-        destinationAccountSelect.disabled = false;
-        destinationAccountSelect.required = true;
-        setTimeout(() => {
-          destinationAccountGroup.classList.add('show');
-        }, 10);
-      } else {
-        destinationAccountGroup.classList.remove('show');
-        setTimeout(() => {
-          destinationAccountGroup.style.display = 'none';
-          destinationAccountSelect.disabled = true;
-          destinationAccountSelect.required = false;
-          destinationAccountSelect.value = '';
-        }, 300);
+      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+      const response = await fetch(downloadUrl, { headers: { Authorization: "Bearer " + driveAccessToken } });
+      if (!response.ok) {
+        console.error("Error al descargar respaldo desde Drive", await response.text());
+        alert("Error al descargar respaldo desde Google Drive.");
+        return;
       }
-    });
-  });
-
-  document.getElementById('amount').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const amount = parseFloat(e.target.value);
-      if (!amount || isNaN(amount)) {
-        return; // Don't submit if amount is invalid
-      }
-      document.getElementById('transactionForm').requestSubmit();
+      const state = await response.json();
+      restoreAppState(state);
+      alert("Respaldo cargado correctamente desde Google Drive.");
+    } catch (err) {
+      console.error("Error cargando respaldo desde Drive:", err);
+      alert("Error al cargar respaldo desde Google Drive.");
     }
-  });
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Delete' && selectedTransactionId !== null) {
-      const transaction = transactions.find(t => t.id === selectedTransactionId);
-      if (transaction && confirm('¿Está seguro que desea eliminar esta transacción?')) {
-        deleteTransaction(selectedTransactionId);
-      }
-    }
-  });
-
-  const hideButton = document.getElementById('hideButton');
-  const transactionsContainer = document.querySelector('.transactions-container');
-
-  hideButton.addEventListener('click', () => {
-    isPanelsHidden = !isPanelsHidden;
-    
-    if (isPanelsHidden) {
-      transactionsContainer.classList.add('hidden');
-      hideButton.textContent = 'Mostrar';
-      hideButton.classList.add('showing');
-    } else {
-      transactionsContainer.classList.remove('hidden');
-      hideButton.textContent = 'Ocultar';
-      hideButton.classList.remove('showing');
-    }
-  });
-
-  const hairdresserButtons = document.querySelectorAll('.hairdresser-button');
-
-  hairdresserButtons.forEach(button => {
-    button.addEventListener('click', (e) => {
-      e.preventDefault();
-      hairdresserButtons.forEach(btn => btn.classList.remove('selected'));
-      button.classList.add('selected');
-      document.getElementById('hairdresser').value = button.dataset.hairdresser;
-    });
-  });
-});
-
-document.addEventListener('DOMContentLoaded', () => {
-  loadFromLocalStorage();
-
-  const modal = document.getElementById('accountModal');
-  const addAccountBtn = document.querySelector('.add-account-btn');
-  const deleteAccountBtn = document.querySelector('.delete-account-btn');
-  const closeBtn = document.querySelector('.close');
-
-  addAccountBtn.onclick = () => openModal(false);
-
-  deleteAccountBtn.onclick = () => {
-    if (!selectedAccount) return;
-  
-    if (confirm(`¿Está seguro que desea eliminar la cuenta "${selectedAccount}"?`)) {
-      transactions = transactions.filter(t => t.account !== selectedAccount);
-      
-      delete accounts[selectedAccount];
-      selectedAccount = null;
-      
-      updateAccountsList();
-      updateAccountButtons();
-      updateAccountSelectors(); 
-      updateTransactionsList(); 
-      saveToLocalStorage();
-    }
-  };
-
-  document.getElementById('account').addEventListener('change', (e) => {
-    toggleInstallmentFields();
-    toggleUSDAmountField();
-  });
-
-  function toggleInstallmentFields() {
-    const accountSelect = document.getElementById('account');
-    const installmentFields = document.querySelector('.installment-fields');
-    const selectedAccountKey = accountSelect.value;
-    
-    if (selectedAccountKey && accounts[selectedAccountKey].type === 'credito') {
-      installmentFields.style.display = 'block';
-      document.getElementById('currentInstallment').disabled = false;
-      document.getElementById('totalInstallments').disabled = false;
-      document.getElementById('currentInstallment').required = true;
-      document.getElementById('totalInstallments').required = true;
-    } else {
-      installmentFields.style.display = 'none';
-      document.getElementById('currentInstallment').disabled = true;
-      document.getElementById('totalInstallments').disabled = true;
-      document.getElementById('currentInstallment').required = false;
-      document.getElementById('totalInstallments').required = false;
-    }
-  }
-
-  function toggleUSDAmountField() {
-    const accountSelect = document.getElementById('account');
-    const usdAmountField = document.querySelector('.usd-amount-field');
-    const selectedAccountKey = accountSelect.value;
-    
-    if (selectedAccountKey && accounts[selectedAccountKey].type === 'dolar') {
-      usdAmountField.style.display = 'block';
-      document.getElementById('usdAmount').addEventListener('input', updateCLPAmount);
-    } else {
-      usdAmountField.style.display = 'none';
-      document.getElementById('usdAmount').removeEventListener('input', updateCLPAmount);
-    }
-  }
-
-  async function updateCLPAmount(e) {
-    try {
-      const response = await fetch('https://mindicador.cl/api/dolar');
-      const data = await response.json();
-      const usdRate = data.serie[0].valor;
-      const usdAmount = parseFloat(e.target.value) || 0;
-      const clpAmount = usdAmount * usdRate;
-      document.getElementById('amount').value = clpAmount.toFixed(2);
-    } catch (error) {
-      console.error('Error al convertir USD a CLP:', error);
-    }
-  }
-
-  document.getElementById('transactionForm').addEventListener('submit', async (e) => {
-    const accountSelect = document.getElementById('account');
-    const selectedAccountKey = accountSelect.value;
-    
-    if (accounts[selectedAccountKey]?.type === 'dolar') {
-      e.preventDefault();
-      const usdAmount = parseFloat(document.getElementById('usdAmount').value) || 0;
-      try {
-        const response = await fetch('https://mindicador.cl/api/dolar');
-        const data = await response.json();
-        const usdRate = data.serie[0].valor;
-        const clpAmount = usdAmount * usdRate;
-        document.getElementById('amount').value = clpAmount.toFixed(2);
-        document.getElementById('transactionForm').requestSubmit();
-      } catch (error) {
-        console.error('Error al obtener el tipo de cambio. Por favor intente nuevamente.');
-        alert('Error al obtener el tipo de cambio. Por favor intente nuevamente.');
-      }
-    }
-  });
-
-  document.querySelectorAll('.type-button').forEach(button => {
-    button.addEventListener('click', (e) => {
-      e.preventDefault();
-      document.querySelectorAll('.type-button').forEach(btn => {
-        btn.classList.remove('selected');
-      });
-      button.classList.add('selected');
-      const type = button.dataset.type;
-      document.getElementById('type').value = type;
-      
-      const destinationAccountGroup = document.getElementById('destinationAccountGroup');
-      const destinationAccountSelect = document.getElementById('destinationAccount');
-      if (type === 'transferencia') {
-        destinationAccountGroup.style.display = 'block';
-        destinationAccountSelect.disabled = false;
-        destinationAccountSelect.required = true;
-        setTimeout(() => {
-          destinationAccountGroup.classList.add('show');
-        }, 10);
-      } else {
-        destinationAccountGroup.classList.remove('show');
-        setTimeout(() => {
-          destinationAccountGroup.style.display = 'none';
-          destinationAccountSelect.disabled = true;
-          destinationAccountSelect.required = false;
-          destinationAccountSelect.value = '';
-        }, 300);
-      }
-    });
-  });
-
-  document.getElementById('amount').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const amount = parseFloat(e.target.value);
-      if (!amount || isNaN(amount)) {
-        return; // Don't submit if amount is invalid
-      }
-      document.getElementById('transactionForm').requestSubmit();
-    }
-  });
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Delete' && selectedTransactionId !== null) {
-      const transaction = transactions.find(t => t.id === selectedTransactionId);
-      if (transaction && confirm('¿Está seguro que desea eliminar esta transacción?')) {
-        deleteTransaction(selectedTransactionId);
-      }
-    }
-  });
-
-  const hideButton = document.getElementById('hideButton');
-  const transactionsContainer = document.querySelector('.transactions-container');
-
-  hideButton.addEventListener('click', () => {
-    isPanelsHidden = !isPanelsHidden;
-    
-    if (isPanelsHidden) {
-      transactionsContainer.classList.add('hidden');
-      hideButton.textContent = 'Mostrar';
-      hideButton.classList.add('showing');
-    } else {
-      transactionsContainer.classList.remove('hidden');
-      hideButton.textContent = 'Ocultar';
-      hideButton.classList.remove('showing');
-    }
-  });
-
-  const hairdresserButtons = document.querySelectorAll('.hairdresser-button');
-
-  hairdresserButtons.forEach(button => {
-    button.addEventListener('click', (e) => {
-      e.preventDefault();
-      hairdresserButtons.forEach(btn => btn.classList.remove('selected'));
-      button.classList.add('selected');
-      document.getElementById('hairdresser').value = button.dataset.hairdresser;
-    });
-  });
-});
-
-document.addEventListener('DOMContentLoaded', () => {
-  const cardFilterBtn = document.getElementById('cardFilter');
-  cardFilterBtn.addEventListener('click', () => {
-    isCardFilterActive = !isCardFilterActive;
-    cardFilterBtn.classList.toggle('active', isCardFilterActive);
-    updateSalonSalesDisplay();
-  });
-
-  const dateFilterInput = document.getElementById('dateFilterInput');
-
-  dateFilterInput.addEventListener('change', (e) => {
-    selectedFilterDate = e.target.value;
-    isDateFilterActive = !!selectedFilterDate;
-    updateSalonSalesDisplay();
-  });
-
-  dateFilterInput.addEventListener('click', (e) => {
-    if (e.target.value === '') {
-      selectedFilterDate = null;
-      isDateFilterActive = false;
-      updateSalonSalesDisplay();
-    }
-  });
-});
-
-function addSalonSale(sale) {
-  // Strict validation for amount 
-  if (!sale.amount || isNaN(sale.amount) || sale.amount <= 0) {
-    console.log('Invalid amount detected, sale not added');
-    return;
-  }
-
-  const newSale = {
-    ...sale,
-    id: Date.now(),
-    amount: parseFloat(sale.amount), // Ensure amount is a number
-    paid: false,
-    commission: 0,
-    commissionWithIVA: 0,
-    netAmount: parseFloat(sale.amount) // Ensure netAmount is a number
-  };
-
-  // Calculate commissions
-  const isCardPayment = sale.paymentType === 'debito' || sale.paymentType === 'credito';
-  const hairdresserConfig = hairdresserCommissions[sale.hairdresser.toLowerCase()];
-
-  // Only calculate REC for card payments
-  const recAmount = isCardPayment ? 
-    sale.amount * (hairdresserConfig.rec / 100) : 0;
-    
-  // Always calculate COM
-  const comAmount = sale.amount * (hairdresserConfig.com / 100);
-  
-  newSale.commission = recAmount + comAmount;
-
-  if (isCardPayment) {
-    const commissionRate = sale.paymentType === 'debito' ? 
-      commissionRates.debito / 100 : 
-      commissionRates.credito / 100;
-    
-    newSale.commissionWithIVA = newSale.commission * (1 + ivaRate / 100);
-    newSale.netAmount = newSale.amount - newSale.commissionWithIVA;
-  }
-
-  salonSales.unshift(newSale);
-  saveSalonToLocalStorage();
-  
-  // Update all relevant panels
-  updateSalonSalesDisplay();
-  updateHairdresserPanels();
-  updateFigaroSemanasPanel();
-  updateFigaroIndicatorsPanel();
-}
-
-// Update the Aldo/Marcos/Otro sales panels to show correct REC calculations
-function updateHairdresserVentasPanel(hairdresser, panel) {
-  const ventasPanel = panel.querySelector('.ventas-table');
-  
-  const sales = salonSales
-    .filter(sale => sale.hairdresser === hairdresser.toUpperCase())
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  sales.forEach(sale => {
-    const isCardPayment = sale.paymentType === 'debito' || sale.paymentType === 'credito';
-    const hairdresserConfig = hairdresserCommissions[hairdresser.toLowerCase()];
-    
-    // Only calculate REC for card payments
-    const recAmount = isCardPayment ? 
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-      
-    // Always calculate COM  
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    const totalPercentage = recAmount + comAmount;
-    
-    const row = document.createElement('div');
-    row.className = 'ventas-table-row';
-    row.innerHTML = `
-      <div class="ventas-table-cell">Sem ${sale.week}</div>
-      <div class="ventas-table-cell">${formatDate(sale.date)}</div>
-      <div class="ventas-table-cell">${sale.serviceCode}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(sale.amount)}</div>
-      <div class="ventas-table-cell payment-type ${sale.paymentType}">${sale.paymentType}</div>
-      <div class="ventas-table-cell amount">${isCardPayment ? formatCurrency(recAmount) : '-'}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(comAmount)}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(totalPercentage)}</div>
-    `;
-    
-    ventasPanel.appendChild(row);
   });
 }
 
-function updateSalonSalesDisplay() {
-  const salesList = document.getElementById('salonSalesList');
-  salesList.innerHTML = '';
-
-  let displayedSales = [...salonSales];
-
-  if (isCardFilterActive) {
-    displayedSales = displayedSales.filter(sale => 
-      sale.paymentType === 'debito' || sale.paymentType === 'credito'
-    );
-  }
-
-  if (isDateFilterActive && selectedFilterDate) {
-    displayedSales = displayedSales.filter(sale => 
-      new Date(sale.date).toISOString().split('T')[0] === selectedFilterDate
-    );
-  }
-
-  let totalVentas = 0;
-  let totalVentaTarjeta = 0;
-  let totalNeto = 0;
-  let totalNetoTarjeta = 0;
-  let totalComisiones = 0;
-  let totalComisionesIVA = 0;
-
-  salonSales.forEach(sale => {
-    let commissionRate = 0;
-    if (sale.paymentType === 'debito') {
-      commissionRate = commissionRates.debito / 100;
-    } else if (sale.paymentType === 'credito') {
-      commissionRate = commissionRates.credito / 100;
-    }
-    
-    sale.commission = sale.amount * commissionRate;
-    sale.commissionWithIVA = sale.commission * (1 + ivaRate / 100);
-    sale.netAmount = sale.amount - sale.commissionWithIVA;
-
-    totalVentas += sale.amount;
-    totalNeto += sale.netAmount;
-
-    if (sale.paymentType === 'debito' || sale.paymentType === 'credito') {
-      totalVentaTarjeta += sale.amount;
-      totalNetoTarjeta += sale.netAmount;
-      totalComisiones += sale.commission;
-      totalComisionesIVA += sale.commissionWithIVA;
-    }
-  });
-
-  const totalPaidAmount = salonSales
-    .filter(sale => sale.paid && sale.paymentDate)
-    .reduce((total, sale) => total + sale.netAmount, 0);
-
-  const pendingAmount = totalNetoTarjeta - totalPaidAmount;
-
-  const commissionRatesHtml = `
-    <div class="commission-rates">
-      <span class="commission-rate" data-type="debito">Débito: ${commissionRates.debito}%</span> | 
-      <span class="commission-rate" data-type="credito">Crédito: ${commissionRates.credito}%</span>
-    </div>
-  `;
-
-  const totalsPanel = document.querySelector('.totals-panel');
-  totalsPanel.innerHTML = `
-    <div class="totals-grid">
-      <div class="total-item">
-        <span class="total-label">Total Ventas:</span>
-        <span class="total-value">${formatCurrency(totalVentas)}</span>
-      </div>
-      <div class="total-item">
-        <span class="total-label">Total Venta Tarjeta:</span>
-        <span class="total-value">${formatCurrency(totalVentaTarjeta)}</span>
-      </div>
-      <div class="total-item">
-        <span class="total-label">Total Neto:</span>
-        <span class="total-value">${formatCurrency(totalNeto)}</span>
-      </div>
-      <div class="total-item total-neto-tarjeta">  
-        <span class="total-label">Total Neto Tarjeta:</span>
-        <span class="total-value">${formatCurrency(totalNetoTarjeta)}</span>
-      </div>
-      <div class="total-item">
-        <span class="total-label">Comisión:</span>
-        <span class="total-value">${commissionRatesHtml}</span>
-      </div>
-      <div class="total-item">
-        <span class="total-label">Total Comisiones:</span>
-        <span class="total-value">${formatCurrency(totalComisionesIVA)}</span>
-      </div>
-      <div class="total-item">
-        <span class="total-label">IVA:</span>
-        <span class="total-value">
-          <span class="iva-rate" data-type="iva">${ivaRate}%</span>
-        </span>
-      </div>
-      <div class="total-item">
-        <span class="total-label">Deuda Transbank:</span>
-        <span class="total-value">${formatCurrency(pendingAmount)}</span>
-      </div>
-    </div>
-  `;
-
-  document.querySelectorAll('.commission-rate').forEach(rate => {
-    rate.addEventListener('dblclick', (e) => {
-      const type = e.target.dataset.type;
-      const currentValue = commissionRates[type];
-
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.step = '0.1';
-      input.min = '0';
-      input.max = '100';
-      input.value = currentValue;
-      input.className = 'edit-commission-rate';
-
-      rate.replaceWith(input);
-      input.focus();
-
-      function saveEdit() {
-        const newValue = parseFloat(input.value);
-        if (!isNaN(newValue) && newValue >= 0 && newValue <= 100) {
-          commissionRates[type] = newValue;
-          saveSalonToLocalStorage();
-          updateSalonSalesDisplay();
-        }
+/* Inicialización de Google Identity y wiring de botones en carga de ventana */
+window.addEventListener('load', function() {
+  // Inicializar botón de Google Identity si el script ya cargó
+  try {
+    if (window.google && google.accounts && google.accounts.id) {
+      google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleCredentialResponse });
+      // renderiza el botón oficial dentro del contenedor solicitado
+      const cont = document.getElementById("googleSignInButton");
+      if (cont) {
+        google.accounts.id.renderButton(cont, { theme: "outline", size: "large", text: "continue_with" });
       }
+      // optionally prompt can be used if desired:
+      // google.accounts.id.prompt();
+    }
+  } catch (err) {
+    console.warn("No se pudo inicializar google.accounts.id en este momento:", err);
+  }
 
-      input.addEventListener('blur', saveEdit);
-      input.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          saveEdit();
+  // Inicializar token client de OAuth2 para Drive (scope limitado a drive.file)
+  try {
+    if (window.google && google.accounts && google.accounts.oauth2) {
+      driveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: "https://www.googleapis.com/auth/drive.file",
+        callback: (tokenResponse) => {
+          driveAccessToken = tokenResponse.access_token;
         }
       });
-    });
-  });
-
-  const ivaRateElement = document.querySelector('.iva-rate');
-  ivaRateElement.addEventListener('dblclick', (e) => {
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.step = '0.1';
-    input.min = '0';
-    input.max = '100';
-    input.value = ivaRate;
-    input.className = 'edit-commission-rate';
-
-    e.target.replaceWith(input);
-    input.focus();
-
-    function saveEdit() {
-      const newValue = parseFloat(input.value);
-      if (!isNaN(newValue) && newValue >= 0 && newValue <= 100) {
-        ivaRate = newValue;
-        saveSalonToLocalStorage();
-        updateSalonSalesDisplay();
-      }
     }
-
-    input.addEventListener('blur', saveEdit);
-    input.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        saveEdit();
-      }
-    });
-  });
-
-  displayedSales.forEach(sale => {
-    const div = document.createElement('div');
-    div.className = `sale-item ${sale.paymentType}`;
-    div.draggable = true;
-    div.setAttribute('data-sale-id', sale.id);
-
-    const dateSelector = sale.paymentType !== 'efectivo' ? `
-      <input type="date" 
-             class="payment-date-selector" 
-             data-id="${sale.id}"
-             value="${sale.paymentDate ? new Date(sale.paymentDate).toISOString().split('T')[0] : ''}"
-             style="padding: 4px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9em;">
-    ` : '-';
-
-    div.innerHTML = `
-      <span>Sem ${sale.week}</span>
-      <span>${formatDate(sale.date)}</span>
-      <span>${sale.hairdresser}</span>
-      <span class="transaction-description editable">${sale.serviceCode}</span>
-      <span class="transaction-amount editable">
-        ${formatCurrency(sale.amount)}
-      </span>
-      <span class="payment-type ${sale.paymentType}">${sale.paymentType.toUpperCase()}</span>
-      <span>${formatCurrency(sale.commission)}</span>
-      <span>${formatCurrency(sale.commissionWithIVA)}</span>
-      <span>${formatCurrency(sale.netAmount)}</span>
-      <span>${dateSelector}</span>
-      <span class="payment-status ${sale.paid ? 'paid' : 'unpaid'}">${sale.paid ? '✔' : '✖'}</span>
-      <div class="sale-actions">
-        <button class="delete-sale-btn" data-id="${sale.id}" title="Eliminar">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-          </svg>
-        </button>
-      </div>
-    `;
-
-    const serviceCodeField = div.querySelector('.transaction-description');
-    const amountField = div.querySelector('.transaction-amount');
-
-    serviceCodeField.addEventListener('dblclick', () => {
-      makeFieldEditable(serviceCodeField, sale.id, 'serviceCode');
-    });
-
-    amountField.addEventListener('dblclick', () => {
-      makeFieldEditable(amountField, sale.id, 'amount');
-    });
-
-    div.addEventListener('dragstart', handleSaleDragStart);
-    div.addEventListener('dragend', handleSaleDragEnd);
-    div.addEventListener('dragover', handleSaleDragOver);
-    div.addEventListener('drop', handleSaleDrop);
-    div.addEventListener('dragenter', handleSaleDragEnter);
-    div.addEventListener('dragleave', handleSaleDragLeave);
-
-    salesList.appendChild(div);
-  });
-
-  document.querySelectorAll('.payment-date-selector').forEach(selector => {
-    selector.addEventListener('change', (e) => {
-      const saleId = parseInt(e.target.dataset.id);
-      const sale = salonSales.find(s => s.id === saleId);
-      if (sale) {
-        sale.paymentDate = e.target.value ? new Date(e.target.value) : null;
-        saveSalonToLocalStorage();
-      }
-    });
-  });
-
-  updateTotalAbonosPanel();
-  updateTotalBalance();
-  updateAccountsList();
-  updateAldoVentasPanel();
-  updateMarcosVentasPanel();
-  updateOtroVentasPanel();
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  const salonForm = document.getElementById('salonForm');
-  const paymentButtons = document.querySelectorAll('.payment-button');
-  const salonAmountInput = document.getElementById('salonAmount');
-
-  salonAmountInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault(); // Prevent form submission
-
-      const sale = {
-        week: document.getElementById('salonWeek').value,
-        date: new Date(document.getElementById('salonDate').value),
-        hairdresser: document.getElementById('hairdresser').value,
-        serviceCode: document.getElementById('serviceCode').value.trim(),
-        amount: parseFloat(document.getElementById('salonAmount').value),
-        paymentType: document.getElementById('paymentType').value
-      };
-
-      // Validate amount and service code
-      if (!sale.serviceCode || !sale.amount || isNaN(sale.amount)) {
-        return; // Don't submit if required fields are empty
-      }
-
-      addSalonSale(sale);
-
-      document.getElementById('serviceCode').value = '';
-      document.getElementById('salonAmount').value = '';
-
-      document.getElementById('serviceCode').focus();
-    }
-  });
-
-  paymentButtons.forEach(button => {
-    button.addEventListener('click', (e) => {
-      e.preventDefault();
-      paymentButtons.forEach(btn => btn.classList.remove('selected'));
-      button.classList.add('selected');
-      document.getElementById('paymentType').value = button.dataset.type;
-    });
-  });
-
-  salonForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-
-    const sale = {
-      week: document.getElementById('salonWeek').value,
-      date: new Date(document.getElementById('salonDate').value),
-      hairdresser: document.getElementById('hairdresser').value,
-      serviceCode: document.getElementById('serviceCode').value,
-      amount: parseFloat(document.getElementById('salonAmount').value),
-      paymentType: document.getElementById('paymentType').value
-    };
-
-    // Validate amount and service code
-    if (!sale.serviceCode || !sale.amount || isNaN(sale.amount)) {
-      return; // Exit if amount is invalid
-    }
-
-    addSalonSale(sale);
-
-    document.getElementById('serviceCode').value = '';
-    document.getElementById('salonAmount').value = '';
-
-    document.getElementById('serviceCode').focus();
-  });
-
-  loadSalonFormState();
-
-  const today = new Date();
-  today.setMinutes(today.getMinutes() + today.getTimezoneOffset());
-  if (!document.getElementById('salonDate').value) {
-    document.getElementById('salonDate').valueAsDate = today;
+  } catch (err) {
+    console.warn("No se pudo inicializar google.accounts.oauth2 en este momento:", err);
   }
 
-  if (!document.getElementById('salonWeek').value) {
-    const weekNumber = Math.ceil(today.getDate() / 7);
-    document.getElementById('salonWeek').value = Math.min(weekNumber, 5);
-  }
+  // Wiring de botones de guardar/cargar respaldo
+  const guardarBtn = document.getElementById("guardarRespaldoBtn");
+  const cargarBtn = document.getElementById("cargarRespaldoBtn");
+  const signOutBtn = document.getElementById("googleSignOutBtn");
+  if (guardarBtn) guardarBtn.addEventListener("click", saveBackupToDrive);
+  if (cargarBtn) cargarBtn.addEventListener("click", loadLatestBackupFromDrive);
+  if (signOutBtn) signOutBtn.addEventListener("click", () => { signOut(); });
+
+  // restaurar sesión de Google persistida (si existe) para sobrevivir a recargas
+  try {
+    const saved = localStorage.getItem('google_user_v1');
+    if (saved) {
+      const ud = JSON.parse(saved);
+      // repoblamos la UI como si se hubiera iniciado sesión
+      onGoogleUserLoggedIn(ud);
+    }
+  } catch (e) { /* ignore parsing errors */ }
 });
 
-function saveSalonFormState() {
-  const formState = {
-    week: document.getElementById('salonWeek').value,
-    date: document.getElementById('salonDate').value,
-    hairdresser: document.getElementById('hairdresser').value,
-    paymentType: document.getElementById('paymentType').value
-  };
-  localStorage.setItem('salonFormState', JSON.stringify(formState));
+/* per-mode column filters: keep Registry and Activity filters separate so they don't interfere */
+let columnFiltersRegistry = {};
+let columnFiltersActivity = {};
+function getColumnFilters(){
+  return activityMode ? columnFiltersActivity : columnFiltersRegistry;
 }
 
-function loadSalonFormState() {
-  const savedState = localStorage.getItem('salonFormState');
-  if (savedState) {
-    const formState = JSON.parse(savedState);
+// date range controls for activity expanded view
+let activityRangeActive = false;
+let activityRangeFrom = null; // YYYY-MM
+let activityRangeTo = null;   // YYYY-MM
 
-    document.getElementById('salonWeek').value = formState.week;
-
-    document.getElementById('salonDate').value = formState.date;
-
-    document.getElementById('hairdresser').value = formState.hairdresser;
-    document.querySelectorAll('.hairdresser-button').forEach(btn => {
-      btn.classList.toggle('selected', btn.dataset.hairdresser === formState.hairdresser);
-    });
-
-    document.getElementById('paymentType').value = formState.paymentType;
-    document.querySelectorAll('.payment-button').forEach(btn => {
-      btn.classList.toggle('selected', btn.dataset.type === formState.paymentType);
-    });
-  }
+function load(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){ return [];}
 }
 
-document.getElementById('salonSalesList').addEventListener('click', (e) => {
-  if (e.target.classList.contains('delete-sale-btn')) {
-    const saleId = parseInt(e.target.dataset.id);
-    if (confirm('¿Está seguro que desea eliminar esta venta?')) {
-      deleteSalonSale(saleId);
-    }
-  }
-});
-
-function makeFieldEditable(element, saleId, fieldName) {
-  const currentValue = fieldName === 'amount' ? 
-    element.textContent.replace(/[^0-9.-]+/g, "") : 
-    element.textContent;
-
-  const input = document.createElement('input');
-  input.type = fieldName === 'amount' ? 'number' : 'text';
-  if (fieldName === 'amount') {
-    input.step = '0.01';
-    input.min = '0';
-  }
-  input.value = currentValue;
-  input.className = `edit-${fieldName}-field`;
-  input.style.width = '100%';
-  input.style.padding = '4px';
-  input.style.border = '1px solid #3498db';
-  input.style.borderRadius = '4px';
-  input.style.fontSize = 'inherit';
-
-  element.replaceWith(input);
-  input.focus();
-
-  function saveEdit() {
-    const newValue = input.value.trim();
-    if (newValue) {
-      const sale = salonSales.find(s => s.id === saleId);
-      if (sale) {
-        if (fieldName === 'amount') {
-          sale.amount = parseFloat(newValue);
-        } else {
-          sale[fieldName] = newValue;
-        }
-        updateSalonSalesDisplay();
-        saveSalonToLocalStorage();
-      }
-    }
-
-    const newSpan = document.createElement('span');
-    newSpan.textContent = fieldName === 'amount' ? 
-      formatCurrency(parseFloat(newValue)) : 
-      (newValue || currentValue);
-    newSpan.addEventListener('dblclick', () => {
-      makeFieldEditable(newSpan, saleId, fieldName);
-    });
-    input.replaceWith(newSpan);
-  }
-
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveEdit();
-    }
-  });
-
-  input.addEventListener('blur', saveEdit);
+function save(){
+  localStorage.setItem(LS_KEY, JSON.stringify(people));
 }
 
-function toggleDailyPaymentStatus(date) {
-  const salesForDate = salonSales.filter(sale => 
-    sale.paymentDate && new Date(sale.paymentDate).toISOString().split('T')[0] === date
-  );
-
-  const allPaid = salesForDate.length > 0 && salesForDate.every(sale => sale.paid);
-
-  salesForDate.forEach(sale => {
-    sale.paid = !allPaid;
-  });
-
-  saveSalonToLocalStorage();
-  updateSalonSalesDisplay();
+/* Persist column widths separately for registry and activity views */
+const COLS_KEY_REG = 'people_registry_cols_registry_v1';
+const COLS_KEY_ACT = 'people_registry_cols_activity_v1';
+function getColsKey(){
+  // use activityMode global to choose correct storage key
+  return activityMode ? COLS_KEY_ACT : COLS_KEY_REG;
+}
+function saveColWidths(){
+  const cols = Array.from(document.querySelectorAll('#cols col')).map(c => c.style.width || c.getAttribute('style') || '');
+  try{
+    localStorage.setItem(getColsKey(), JSON.stringify(cols));
+  }catch(e){}
+}
+function loadColWidths(){
+  try{
+    const raw = localStorage.getItem(getColsKey());
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
 }
 
-const backupBtn = document.getElementById('backupButton');
-const backupDropdown = document.getElementById('backupDropdown');
-
-backupBtn.addEventListener('click', () => {
-  backupDropdown.classList.toggle('show');
-});
-
-document.addEventListener('click', (e) => {
-  if (!backupBtn.contains(e.target) && !backupDropdown.contains(e.target)) {
-    backupDropdown.classList.remove('show');
-  }
-});
-
-document.getElementById('backupSave').addEventListener('click', () => {
-  const data = {
-    accounts,
-    transactions,
-    accountsOrder,
-    transactionsOrder,
-    salonSales,
-    commissionRates,
-    ivaRate,
-    salesBoletas,
-    figaroIndicators
-  };
-
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `finanzas_backup_${new Date().toISOString().split('T')[0]}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  backupDropdown.classList.remove('show');
-});
-
-document.getElementById('backupRestore').addEventListener('click', () => {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.json';
-
-  input.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target.result);
-
-        if (!data.accounts || !data.transactions || !data.accountsOrder || !data.transactionsOrder) {
-          throw new Error('Formato de respaldo inválido: faltan datos financieros');
-        }
-
-        accounts = data.accounts;
-        transactions = data.transactions;
-        accountsOrder = data.accountsOrder;
-        transactionsOrder = data.transactionsOrder;
-
-        if (data.salonSales) salonSales = data.salonSales;
-        if (data.commissionRates) commissionRates = data.commissionRates;
-        if (data.ivaRate) ivaRate = data.ivaRate;
-        if (data.salesBoletas) salesBoletas = data.salesBoletas;
-        if (data.figaroIndicators) figaroIndicators = data.figaroIndicators;
-
-        updateTotalBalance();
-        updateAccountsList();
-        updateTransactionsList();
-        updateAccountSelectors();
-        updateSalonSalesDisplay();
-        
-        saveToLocalStorage();
-        saveSalonToLocalStorage();
-
-        // Persist and show the filename of the restored backup
-        try {
-          if (file && file.name) {
-            localStorage.setItem('last_backup_name', file.name);
-            const el = document.getElementById('lastBackupName');
-            if (el) el.textContent = file.name;
-          }
-        } catch (e) { /* ignore storage/display errors */ }
-
-        alert('Respaldo restaurado exitosamente');
-      } catch (error) {
-        alert('Error al restaurar el respaldo: ' + error.message);
-      }
-    };
-    reader.readAsText(file);
-  });
-
-  input.click();
-  backupDropdown.classList.remove('show');
-});
-
-function saveSalonToLocalStorage() {
-  localStorage.setItem('figaro_sales', JSON.stringify(salonSales));
-  localStorage.setItem('figaro_commission_rates', JSON.stringify(commissionRates));
-  localStorage.setItem('figaro_iva_rate', JSON.stringify(ivaRate));
-  localStorage.setItem('hairdresserCommissions', JSON.stringify(hairdresserCommissions));
-  localStorage.setItem('sales_boletas', JSON.stringify(salesBoletas));
-  localStorage.setItem('figaro_indicators', JSON.stringify(figaroIndicators));
+function uid(){
+  return Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 }
 
-function loadSalonFromLocalStorage() {
-  const savedSales = localStorage.getItem('figaro_sales');
-  const savedRates = localStorage.getItem('figaro_commission_rates');
-  const savedIvaRate = localStorage.getItem('figaro_iva_rate');
-  const savedHairdresserCommissions = localStorage.getItem('hairdresserCommissions');
-  const savedBoletas = localStorage.getItem('sales_boletas');
-  const savedIndicators = localStorage.getItem('figaro_indicators');
+/* column mapping in table order for sorting (only used in registry view) */
+const COLUMN_KEYS = [
+  'congName', 'firstName', 'lastNameP', 'lastNameM', 'group', 'privilege',
+  'designation', 'sex', 'esp', 'birthDate', 'baptismDate', 'address', 'phone', 'emergencyContact'
+];
 
-  if (savedSales) salonSales = JSON.parse(savedSales);
-  if (savedRates) commissionRates = JSON.parse(savedRates);
-  if (savedIvaRate) ivaRate = JSON.parse(savedIvaRate);
-  if (savedHairdresserCommissions) hairdresserCommissions = JSON.parse(savedHairdresserCommissions);
-  if (savedBoletas) salesBoletas = JSON.parse(savedBoletas);
-  if (savedIndicators) figaroIndicators = JSON.parse(savedIndicators);
+// Activity view column keys (used for per-column filtering in activity mode)
+const ACT_COLUMN_KEYS = [
+  'congName',       // 0
+  'activityMonth',  // 1 (month selector / derived from activities._lastMonth)
+  'group',          // 2
+  'privilege',      // 3
+  'designation',    // 4
+  'aux',            // 5 (boolean inside activities)
+  'hours',          // 6 (inside activities)
+  'studies',        // 7 (inside activities)
+  'comments'        // 8 (inside activities)
+];
 
-  updateSalonSalesDisplay();
-  updateHairdresserPanels();
-}
+/* current sort state */
+let sortState = { idx: null, dir: 1 }; // dir: 1 asc, -1 desc
 
-function updateTotalAbonosPanel() {
-  const totalAbonosPanel = document.querySelector('.total-abonos-panel');
-
-  const salesWithPaymentDates = salonSales.filter(sale => 
-    sale.paymentDate
-  );
-
-  const salesByDate = salesWithPaymentDates.reduce((acc, sale) => {
-    const date = new Date(sale.paymentDate).toISOString().split('T')[0];
-    if (!acc[date]) {
-      acc[date] = {
-        debito: 0,
-        credito: 0,
-        paid: false 
-      };
-    }
-    if (sale.paymentType === 'debito') {
-      acc[date].debito += sale.netAmount;
-    } else if (sale.paymentType === 'credito') {
-      acc[date].credito += sale.netAmount;
-    }
-    return acc;
-  }, {});
-
-  totalAbonosPanel.innerHTML = '';
-  const header = document.createElement('h2');
-  header.textContent = 'Total Abonos';
-  totalAbonosPanel.appendChild(header);
-
-  const paidTotalPanel = document.createElement('div');
-  paidTotalPanel.className = 'paid-transactions-total';
-  const totalPaidAmount = salonSales
-    .filter(sale => sale.paid && sale.paymentDate)
-    .reduce((total, sale) => total + sale.netAmount, 0);
-  paidTotalPanel.innerHTML = `
-    <div class="paid-transactions-amount">${formatCurrency(totalPaidAmount)}</div>
-  `;
-  totalAbonosPanel.appendChild(paidTotalPanel);
-
-  Object.entries(salesByDate)
-    .sort(([dateA], [dateB]) => new Date(dateB) - new Date(dateA)) 
-    .forEach(([date, totals]) => {
-      const dailyPanel = document.createElement('div');
-      dailyPanel.className = 'daily-totals-panel';
-      
-      const totalDay = totals.debito + totals.credito;
-
-      const salesForDate = salonSales.filter(sale => 
-        sale.paymentDate && new Date(sale.paymentDate).toISOString().split('T')[0] === date
-      );
-      const allPaid = salesForDate.length > 0 && salesForDate.every(sale => sale.paid);
-
-      dailyPanel.innerHTML = `
-        <h3>Fecha: ${formatDate(date)}</h3>
-        <div class="daily-totals-grid">
-          <div class="daily-total-item">
-            <span class="daily-total-label">Débito:</span>
-            <span class="daily-total-value">${formatCurrency(totals.debito)}</span>
-          </div>
-          <div class="daily-total-item">
-            <span class="daily-total-label">Crédito:</span>
-            <span class="daily-total-value">${formatCurrency(totals.credito)}</span>
-          </div>
-          <div class="daily-total-item">
-            <span class="daily-total-label">Total Día:</span>
-            <span class="daily-total-value">${formatCurrency(totalDay)}</span>
-          </div>
-        </div>
-        <button class="daily-paid-btn ${allPaid ? 'paid' : ''}" data-date="${date}">
-          ${allPaid ? 'Pagado' : 'Marcar como Pagado'}
-        </button>
-      `;
-
-      totalAbonosPanel.appendChild(dailyPanel);
-
-      const paidBtn = dailyPanel.querySelector('.daily-paid-btn');
-      paidBtn.addEventListener('click', () => toggleDailyPaymentStatus(date));
-    });
-
-  if (Object.keys(salesByDate).length === 0) {
-    const noDataMessage = document.createElement('p');
-    noDataMessage.className = 'no-data-message';
-    noDataMessage.textContent = 'No hay abonos registrados';
-    totalAbonosPanel.appendChild(noDataMessage);
-  }
-}
-
-function formatDate(date) {
-  const d = new Date(date);
-  d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
-  return d.toLocaleDateString('es-CL', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
-}
-
-const calculatorInput = document.getElementById('calculatorInput');
-const showCalculatorBtn = document.getElementById('showCalculator');
-const backToTransactionBtn = document.getElementById('backToTransaction');
-const transactionPanel = document.getElementById('transactionPanel');
-const calculatorPanel = document.getElementById('calculatorPanel');
-
-let currentInput = '';
-let currentOperation = null;
-let previousInput = null;
-
-showCalculatorBtn.addEventListener('click', () => {
-  transactionPanel.style.display = 'none';
-  calculatorPanel.style.display = 'block';
-  calculatorInput.value = '';
-  currentInput = '';
-  currentOperation = null;
-  previousInput = null;
-});
-
-backToTransactionBtn.addEventListener('click', () => {
-  calculatorPanel.style.display = 'none';
-  transactionPanel.style.display = 'block';
-});
-
-function calculate() {
-  if (previousInput === null || currentOperation === null) return;
-
-  const prev = parseFloat(previousInput);
-  const current = parseFloat(currentInput);
-  let result;
-
-  switch(currentOperation) {
-    case '+':
-      result = prev + current;
-      break;
-    case '-':
-      result = prev - current;
-      break;
-    case '*':
-      result = prev * current;
-      break;
-    case '/':
-      result = prev / current;
-      break;
-    default:
-      return;
-  }
-
-  currentInput = result.toString();
-  calculatorInput.value = currentInput;
-  previousInput = null;
-  currentOperation = null;
-}
-
-document.querySelectorAll('.calc-key').forEach(key => {
-  key.addEventListener('click', () => handleCalculatorInput(key.dataset.key));
-
-  key.addEventListener('mousedown', () => key.classList.add('active'));
-  key.addEventListener('mouseup', () => key.classList.remove('active'));
-  key.addEventListener('mouseleave', () => key.classList.remove('active'));
-});
-
-document.addEventListener('keydown', (e) => {
-  if (calculatorPanel.style.display === 'block') {
-    const key = e.key.toLowerCase();
-    if (key === 'enter') {
-      handleCalculatorInput('=');
-    } else if (key === 'escape') {
-      handleCalculatorInput('c');
-    } else if (key === 'backspace') {
-      handleCalculatorInput('backspace');
-    } else if (/[\d\+\-\*\/\.\=]/.test(key)) {
-      handleCalculatorInput(key);
-    }
-
-    const button = document.querySelector(`.calc-key[data-key="${key}"]`);
-    if (button) {
-      button.classList.add('active');
-      setTimeout(() => button.classList.remove('active'), 100);
-    }
-  }
-});
-
-function handleCalculatorInput(key) {
-  if (key === 'c') {
-    currentInput = '';
-    previousInput = null;
-    currentOperation = null;
-    calculatorInput.value = '';
-    return;
-  }
-
-  if (key === 'backspace') {
-    currentInput = currentInput.slice(0, -1);
-    calculatorInput.value = currentInput;
-    return;
-  }
-
-  if (/[\d\.]/.test(key)) {
-    if (key === '.' && currentInput.includes('.')) return;
-    currentInput += key;
-    calculatorInput.value = currentInput;
-  }
-
-  if (/[\+\-\*\/]/.test(key)) {
-    if (currentInput === '') return;
-    if (previousInput !== null) {
-      calculate();
-    }
-    previousInput = currentInput;
-    currentInput = '';
-    currentOperation = key;
-  }
-
-  if (key === '=') {
-    if (previousInput === null || currentInput === '') return;
-    calculate();
-  }
-}
-
-function handleSaleDragStart(e) {
-  e.target.classList.add('dragging');
-  e.dataTransfer.setData('text/plain', e.target.getAttribute('data-sale-id'));
-}
-
-function handleSaleDragEnd(e) {
-  e.target.classList.remove('dragging');
-  document.querySelectorAll('.sale-item').forEach(item => {
-    item.classList.remove('drag-over');
-  });
-}
-
-function handleSaleDragOver(e) {
-  e.preventDefault();
-  const draggedElement = document.querySelector('.sale-item.dragging');
-  if (!draggedElement) return;
-
-  const list = document.getElementById('salonSalesList');
-  const siblings = [...list.querySelectorAll('.sale-item:not(.dragging)')];
-
-  const nextSibling = siblings.find(sibling => {
-    const box = sibling.getBoundingClientRect();
-    const offset = e.clientY - box.top - box.height / 2;
-    return offset < 0;
-  });
-
-  if (nextSibling) {
-    list.insertBefore(draggedElement, nextSibling);
+function openModal(mode='add', data=null){
+  modal.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  if(mode === 'add'){
+    $('#modalTitle').textContent = 'Agregar Persona';
+    form.reset();
+    personId.value = '';
   } else {
-    list.appendChild(draggedElement);
+    $('#modalTitle').textContent = 'Editar Persona';
+    personId.value = data.id;
+    $('#congName').value = data.congName || '';
+    $('#firstName').value = data.firstName || '';
+    $('#lastNameP').value = data.lastNameP || '';
+    $('#lastNameM').value = data.lastNameM || '';
+    $('#group').value = data.group || '';
+    $('#privilege').value = data.privilege || '';
+    $('#designation').value = data.designation || '';
+    $('#sex').value = data.sex || '';
+    $('#esp').value = data.esp || '';
+    $('#birthDate').value = data.birthDate || '';
+    $('#baptismDate').value = data.baptismDate || '';
+    $('#address').value = data.address || '';
+    $('#phone').value = data.phone || '';
+    $('#emergencyContact').value = data.emergencyContact || '';
   }
+  $('#firstName').focus();
 }
 
-function handleSaleDragEnter(e) {
-  e.preventDefault();
-  if (e.target.classList.contains('sale-item') && !e.target.classList.contains('dragging')) {
-    e.target.classList.add('drag-over');
-  }
+function close(){
+  modal.classList.add('hidden');
+  document.body.style.overflow = '';
 }
 
-function handleSaleDragLeave(e) {
-  if (e.target.classList.contains('sale-item')) {
-    e.target.classList.remove('drag-over');
-  }
-}
-
-function handleSaleDrop(e) {
-  e.preventDefault();
-  const draggedId = parseInt(e.dataTransfer.getData('text/plain'));
-  const items = document.querySelectorAll('.sale-item');
-  const newOrder = Array.from(items).map(item => 
-    parseInt(item.getAttribute('data-sale-id'))
-  );
-  salonSales.sort((a, b) => {
-    const indexA = newOrder.indexOf(a.id);
-    const indexB = newOrder.indexOf(b.id);
-    return indexA - indexB;
-  });
-
-  saveSalonToLocalStorage();
-}
-
-function deleteSalonSale(saleId) {
-  salonSales = salonSales.filter(sale => sale.id !== saleId);
-  saveSalonToLocalStorage();
-  updateSalonSalesDisplay();
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  const deleteAllBtn = document.getElementById('deleteAllSales');
-  deleteAllBtn.addEventListener('click', () => {
-    if (confirm('¿Está seguro que desea eliminar todas las ventas? Esta acción no se puede deshacer.')) {
-      salonSales = [];
-      saveSalonToLocalStorage();
-      updateSalonSalesDisplay();
-    }
-  });
-});
-
-document.addEventListener('DOMContentLoaded', () => {
-  loadSalonFromLocalStorage();
-
-  const salonForm = document.getElementById('salonForm');
-  const paymentButtons = document.querySelectorAll('.payment-button');
-  const salonAmountInput = document.getElementById('salonAmount');
-
-  const today = new Date();
-  today.setMinutes(today.getMinutes() + today.getTimezoneOffset());
-  document.getElementById('salonDate').valueAsDate = today;
-
-  paymentButtons.forEach(button => {
-    button.addEventListener('click', (e) => {
-      e.preventDefault();
-      paymentButtons.forEach(btn => btn.classList.remove('selected'));
-      button.classList.add('selected');
-      document.getElementById('paymentType').value = button.dataset.type;
-    });
-  });
-
-  salonForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-
-    const sale = {
-      week: document.getElementById('salonWeek').value,
-      date: new Date(document.getElementById('salonDate').value),
-      hairdresser: document.getElementById('hairdresser').value,
-      serviceCode: document.getElementById('serviceCode').value,
-      amount: parseFloat(document.getElementById('salonAmount').value),
-      paymentType: document.getElementById('paymentType').value
-    };
-
-    // Validate amount and service code
-    if (!sale.serviceCode || !sale.amount || isNaN(sale.amount)) {
-      return; // Exit if amount is invalid
-    }
-
-    addSalonSale(sale);
-
-    document.getElementById('serviceCode').value = '';
-    document.getElementById('salonAmount').value = '';
-
-    document.getElementById('serviceCode').focus();
-  });
-
-  loadSalonFormState();
-
-  const todayDate = new Date();
-  todayDate.setMinutes(todayDate.getMinutes() + todayDate.getTimezoneOffset());
-  if (!document.getElementById('salonDate').value) {
-    document.getElementById('salonDate').valueAsDate = todayDate;
+/* sorts people array by column index (toggles asc/desc if same column clicked) */
+function sortByColumn(idx){
+  if(typeof idx !== 'number' || idx < 0 || idx >= COLUMN_KEYS.length) return;
+  if(sortState.idx === idx){
+    sortState.dir = -sortState.dir; // toggle
+  } else {
+    sortState.idx = idx;
+    sortState.dir = 1;
   }
 
-  if (!document.getElementById('salonWeek').value) {
-    const weekNumber = Math.ceil(todayDate.getDate() / 7);
-    document.getElementById('salonWeek').value = Math.min(weekNumber, 5);
-  }
-});
-
-document.addEventListener('DOMContentLoaded', () => {
-  loadFromLocalStorage();
-
-  const salonForm = document.getElementById('salonForm');
-  const paymentButtons = document.querySelectorAll('.payment-button');
-  const salonAmountInput = document.getElementById('salonAmount');
-
-  // Set today's date for salonDate
-  const today = new Date();
-  today.setMinutes(today.getMinutes() + today.getTimezoneOffset());
-  document.getElementById('salonDate').valueAsDate = today;
-
-  paymentButtons.forEach(button => {
-    button.addEventListener('click', (e) => {
-      e.preventDefault();
-      paymentButtons.forEach(btn => {
-        btn.classList.remove('selected');
-      });
-      button.classList.add('selected');
-      document.getElementById('paymentType').value = button.dataset.type;
-    });
-  });
-
-  salonForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-
-    const sale = {
-      week: document.getElementById('salonWeek').value,
-      date: new Date(document.getElementById('salonDate').value),
-      hairdresser: document.getElementById('hairdresser').value,
-      serviceCode: document.getElementById('serviceCode').value,
-      amount: parseFloat(document.getElementById('salonAmount').value),
-      paymentType: document.getElementById('paymentType').value
-    };
-
-    // Validate amount and service code
-    if (!sale.serviceCode || !sale.amount || isNaN(sale.amount)) {
-      return; // Exit if amount is invalid
-    }
-
-    addSalonSale(sale);
-
-    document.getElementById('serviceCode').value = '';
-    document.getElementById('salonAmount').value = '';
-
-    // Reset date to today after submission
-    document.getElementById('salonDate').valueAsDate = new Date();
-
-    document.getElementById('serviceCode').focus();
-  });
-
-  // ... rest of existing code ...
-  document.addEventListener('DOMContentLoaded', () => {
-    // Add event listeners for hairdresser panel buttons
-    const blackPanelButtons = document.querySelectorAll('.black-panel-button');
-    blackPanelButtons.forEach(button => {
-      button.addEventListener('click', () => {
-        blackPanelButtons.forEach(btn => btn.classList.remove('selected'));
-        button.classList.add('selected');
-        // Future functionality can be added here
-      });
-    });
-  });
-});
-
-document.addEventListener('DOMContentLoaded', () => {
-  const aldoButton = document.getElementById('aldoButton');
-  const marcosButton = document.querySelector('.black-panel-button:nth-child(2)'); // Select Marcos button
-  const otroButton = document.querySelector('.black-panel-button:nth-child(3)'); // Select Otro button
-  const aldoPanels = document.querySelector('.aldo-panels');
-  const marcosPanels = document.querySelector('.marcos-panels');
-  const otroPanels = document.querySelector('.otro-panels');
-  
-  aldoButton.addEventListener('click', () => {
-    aldoButton.classList.toggle('selected');
-    aldoPanels.classList.toggle('show');
-    
-    // Hide other panels if they're showing
-    marcosButton.classList.remove('selected');
-    otroButton.classList.remove('selected');
-    marcosPanels.classList.remove('show');
-    otroPanels.classList.remove('show');
-  });
-
-  marcosButton.addEventListener('click', () => {
-    marcosButton.classList.toggle('selected');
-    marcosPanels.classList.toggle('show');
-    
-    // Hide other panels if they're showing
-    aldoButton.classList.remove('selected');
-    otroButton.classList.remove('selected');
-    aldoPanels.classList.remove('show');
-    otroPanels.classList.remove('show');
-    
-    updateMarcosVentasPanel();
-  });
-
-  otroButton.addEventListener('click', () => {
-    otroButton.classList.toggle('selected');
-    otroPanels.classList.toggle('show');
-    
-    // Hide other panels if they're showing
-    aldoButton.classList.remove('selected');
-    marcosButton.classList.remove('selected');
-    aldoPanels.classList.remove('show');
-    marcosPanels.classList.remove('show');
-    
-    updateOtroVentasPanel();
-  });
-
-  // Add functionality for all black panel buttons
-  const blackPanelButtons = document.querySelectorAll('.black-panel-button');
-  blackPanelButtons.forEach(button => {
-    button.addEventListener('click', (e) => {
-      if (e.target !== aldoButton && e.target !== marcosButton && e.target !== otroButton) {
-        // If clicking another button, hide all panels
-        aldoButton.classList.remove('selected');
-        marcosButton.classList.remove('selected');
-        otroButton.classList.remove('selected');
-        aldoPanels.classList.remove('show');
-        marcosPanels.classList.remove('show');
-        otroPanels.classList.remove('show');
+  const key = COLUMN_KEYS[idx];
+  people.sort((a,b) => {
+    let va = a[key] ?? '';
+    let vb = b[key] ?? '';
+    // normalize for comparison
+    // for dates, compare actual date values so sorting is chronological (empty last)
+    if(key === 'birthDate' || key === 'baptismDate'){
+      const da = va ? new Date(va) : null;
+      const db = vb ? new Date(vb) : null;
+      if((da && isNaN(da)) || (db && isNaN(db))){
+        // fallback to string compare
+        va = String(va).toLowerCase();
+        vb = String(vb).toLowerCase();
+      } else {
+        if(da === null && db === null) return 0;
+        if(da === null) return 1 * sortState.dir; // empty go last
+        if(db === null) return -1 * sortState.dir;
+        return (da - db) * sortState.dir;
       }
-      
-      blackPanelButtons.forEach(btn => {
-        if (btn !== e.target) {
-          btn.classList.remove('selected');
-        }
-      });
-    });
-  });
-});
-
-function updateAldoSemanasPanel() {
-  const semanasPanel = document.querySelector('.semanas-aldo .aldo-content');
-  semanasPanel.innerHTML = '';
-
-  // Get all Aldo's sales
-  const aldoSales = salonSales.filter(sale => sale.hairdresser === 'ALDO');
-
-  // Group sales by week
-  const salesByWeek = {};
-  for (let week = 1; week <= 5; week++) {
-    salesByWeek[week] = {
-      totalVentas: 0,
-      totalTarjeta: 0,
-      totalPorc: 0
-    };
-  }
-
-  aldoSales.forEach(sale => {
-    const weekNumber = parseInt(sale.week);
-    const weekData = salesByWeek[weekNumber];
-    weekData.totalVentas += sale.amount;
-    
-    if (sale.paymentType === 'debito' || sale.paymentType === 'credito') {
-      weekData.totalTarjeta += sale.amount;
+    } else {
+      va = String(va).toLowerCase();
+      vb = String(vb).toLowerCase();
     }
 
-    const hairdresserConfig = hairdresserCommissions.aldo;
-    const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    weekData.totalPorc += (recAmount + comAmount);
+    if(va < vb) return -1 * sortState.dir;
+    if(va > vb) return 1 * sortState.dir;
+    return 0;
   });
 
-  // Create weekly summary cards in order from week 1 to 5
-  Object.entries(salesByWeek)
-    .sort(([weekA], [weekB]) => parseInt(weekA) - parseInt(weekB)) 
-    .forEach(([week, data]) => {
-      const weekCard = document.createElement('div');
-      weekCard.className = 'week-summary-card';
-      
-      const diferencia = data.totalTarjeta - data.totalPorc;
-
-      weekCard.innerHTML = `
-        <h4>Semana ${week}</h4>
-        <div class="week-summary-grid">
-          <div class="week-summary-item">
-            <span class="summary-label">Total Ventas Aldo:</span>
-            <span class="summary-value">${formatCurrency(data.totalVentas)}</span>
-          </div>
-          <div class="week-summary-item">
-            <span class="summary-label">Total Venta Tarjeta Aldo:</span>
-            <span class="summary-value">${formatCurrency(data.totalTarjeta)}</span>
-          </div>
-          <div class="week-summary-item">
-            <span class="summary-label">Total Porc. Aldo:</span>
-            <span class="summary-value">${formatCurrency(data.totalPorc)}</span>
-          </div>
-          <div class="week-summary-item">
-            <span class="summary-label">Dif. Aldo:</span>
-            <span class="summary-value">${formatCurrency(diferencia)}</span>
-          </div>
-        </div>
-      `;
-
-      semanasPanel.appendChild(weekCard);
-    });
-
-  if (Object.keys(salesByWeek).length === 0) {
-    semanasPanel.innerHTML = '<p class="no-data-message">No hay datos para mostrar</p>';
-  }
+  save();
+  render(searchInput.value);
 }
 
-function updateMarcosSemanasPanel() {
-  const semanasPanel = document.querySelector('.semanas-marcos .marcos-content');
-  semanasPanel.innerHTML = '';
+/* Render table - supports normal registry and activity mode */
+function render(filter=''){
+  // (badge update moved later after filtering)
+  tbody.innerHTML = '';
 
-  // Get all Marcos' sales
-  const marcosSales = salonSales.filter(sale => sale.hairdresser === 'MARCOS');
-
-  // Group sales by week
-  const salesByWeek = {};
-  for (let week = 1; week <= 5; week++) {
-    salesByWeek[week] = {
-      totalVentas: 0,
-      totalTarjeta: 0,
-      totalPorc: 0
-    };
-  }
-
-  marcosSales.forEach(sale => {
-    const weekNumber = parseInt(sale.week);
-    const weekData = salesByWeek[weekNumber];
-    weekData.totalVentas += sale.amount;
-    
-    if (sale.paymentType === 'debito' || sale.paymentType === 'credito') {
-      weekData.totalTarjeta += sale.amount;
-    }
-
-    const hairdresserConfig = hairdresserCommissions.marcos;
-    const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    weekData.totalPorc += (recAmount + comAmount);
-  });
-
-  // Create weekly summary cards in order from week 1 to 5
-  Object.entries(salesByWeek)
-    .sort(([weekA], [weekB]) => parseInt(weekA) - parseInt(weekB)) 
-    .forEach(([week, data]) => {
-      const weekCard = document.createElement('div');
-      weekCard.className = 'week-summary-card';
-      
-      const diferencia = data.totalTarjeta - data.totalPorc;
-
-      weekCard.innerHTML = `
-        <h4>Semana ${week}</h4>
-        <div class="week-summary-grid">
-          <div class="week-summary-item">
-            <span class="summary-label">Total Ventas Marcos:</span>
-            <span class="summary-value">${formatCurrency(data.totalVentas)}</span>
-          </div>
-          <div class="week-summary-item">
-            <span class="summary-label">Total Venta Tarjeta Marcos:</span>
-            <span class="summary-value">${formatCurrency(data.totalTarjeta)}</span>
-          </div>
-          <div class="week-summary-item">
-            <span class="summary-label">Total Porc. Marcos:</span>
-            <span class="summary-value">${formatCurrency(data.totalPorc)}</span>
-          </div>
-          <div class="week-summary-item">
-            <span class="summary-label">Dif. Marcos:</span>
-            <span class="summary-value">${formatCurrency(diferencia)}</span>
-          </div>
-        </div>
-      `;
-
-      semanasPanel.appendChild(weekCard);
-    });
-
-  if (Object.keys(salesByWeek).length === 0) {
-    semanasPanel.innerHTML = '<p class="no-data-message">No hay datos para mostrar</p>';
-  }
-}
-
-function updateAldoVentasPanel() {
-  const ventasPanel = document.querySelector('.ventas-aldo .aldo-content');
-  ventasPanel.innerHTML = '';
-
-  const table = document.createElement('div');
-  table.className = 'ventas-table';
-
-  const header = document.createElement('div');
-  header.className = 'ventas-table-header';
-  header.innerHTML = `
-    <div class="ventas-table-cell">Semana</div>
-    <div class="ventas-table-cell">Fecha</div>
-    <div class="ventas-table-cell">Código</div>
-    <div class="ventas-table-cell">Monto</div>
-    <div class="ventas-table-cell">Tipo Pago</div>
-    <div class="ventas-table-cell">REC</div>
-    <div class="ventas-table-cell">COM</div>
-    <div class="ventas-table-cell">Porc. Aldo</div>
-  `;
-  table.appendChild(header);
-
-  const aldoSales = salonSales
-    .filter(sale => sale.hairdresser === 'ALDO')
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  aldoSales.forEach(sale => {
-    const isCardPayment = sale.paymentType === 'debito' || sale.paymentType === 'credito';
-    const hairdresserConfig = hairdresserCommissions.aldo;
-    // Only calculate REC for card payments
-    const recAmount = isCardPayment ? 
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-      
-    // Always calculate COM  
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    const totalPercentage = recAmount + comAmount;
-    
-    const row = document.createElement('div');
-    row.className = 'ventas-table-row';
-    row.innerHTML = `
-      <div class="ventas-table-cell">Sem ${sale.week}</div>
-      <div class="ventas-table-cell">${formatDate(sale.date)}</div>
-      <div class="ventas-table-cell">${sale.serviceCode}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(sale.amount)}</div>
-      <div class="ventas-table-cell payment-type ${sale.paymentType}">${sale.paymentType}</div>
-      <div class="ventas-table-cell amount">${isCardPayment ? formatCurrency(recAmount) : '-'}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(comAmount)}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(totalPercentage)}</div>
+  // adjust headers & colgroup depending on mode
+  const theadRow = document.querySelector('#peopleTable thead tr');
+  const colgroup = document.getElementById('cols');
+  if(activityMode){
+    // set headers for activity view (each header gets a filter button like in Registry)
+    theadRow.innerHTML = `
+      <th>Nombre (Cong.) <button class="col-filter" data-idx="0" title="Filtrar columna">🔍</button></th>
+      <th>Fecha <button class="col-filter" data-idx="1" title="Filtrar columna">🔍</button></th>
+      <th>Grupo <button class="col-filter" data-idx="2" title="Filtrar columna">🔍</button></th>
+      <th>Privilegio <button class="col-filter" data-idx="3" title="Filtrar columna">🔍</button></th>
+      <th>Designación <button class="col-filter" data-idx="4" title="Filtrar columna">🔍</button></th>
+      <th>Aux. Mes <button class="col-filter" data-idx="5" title="Filtrar columna">🔍</button></th>
+      <th>Horas <button class="col-filter" data-idx="6" title="Filtrar columna">🔍</button></th>
+      <th>Estudios <button class="col-filter" data-idx="7" title="Filtrar columna">🔍</button></th>
+      <th>Comentarios <button class="col-filter" data-idx="8" title="Filtrar columna">🔍</button></th>
     `;
-    
-    table.appendChild(row);
-  });
-
-  ventasPanel.appendChild(table);
-  updateAldoSemanasPanel();
-}
-
-function updateMarcosVentasPanel() {
-  const ventasPanel = document.querySelector('.ventas-marcos .marcos-content');
-  ventasPanel.innerHTML = '';
-
-  const table = document.createElement('div');
-  table.className = 'ventas-table';
-
-  const header = document.createElement('div');
-  header.className = 'ventas-table-header';
-  header.innerHTML = `
-    <div class="ventas-table-cell">Semana</div>
-    <div class="ventas-table-cell">Fecha</div>
-    <div class="ventas-table-cell">Código</div>
-    <div class="ventas-table-cell">Monto</div>
-    <div class="ventas-table-cell">Tipo Pago</div>
-    <div class="ventas-table-cell">REC</div>
-    <div class="ventas-table-cell">COM</div>
-    <div class="ventas-table-cell">Porc. Marcos</div>
-  `;
-  table.appendChild(header);
-
-  const marcosSales = salonSales
-    .filter(sale => sale.hairdresser === 'MARCOS')
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  marcosSales.forEach(sale => {
-    const isCardPayment = sale.paymentType === 'debito' || sale.paymentType === 'credito';
-    const hairdresserConfig = hairdresserCommissions.marcos;
-    // Only calculate REC for card payments
-    const recAmount = isCardPayment ? 
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-      
-    // Always calculate COM  
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    const totalPercentage = recAmount + comAmount;
-    
-    const row = document.createElement('div');
-    row.className = 'ventas-table-row';
-    row.innerHTML = `
-      <div class="ventas-table-cell">Sem ${sale.week}</div>
-      <div class="ventas-table-cell">${formatDate(sale.date)}</div>
-      <div class="ventas-table-cell">${sale.serviceCode}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(sale.amount)}</div>
-      <div class="ventas-table-cell payment-type ${sale.paymentType}">${sale.paymentType}</div>
-      <div class="ventas-table-cell amount">${isCardPayment ? formatCurrency(recAmount) : '-'}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(comAmount)}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(totalPercentage)}</div>
+    // ensure colgroup has 9 cols (added Privilegio)
+    colgroup.innerHTML = '';
+    const widths = ['240px','130px','100px','110px','130px','90px','90px','130px','220px'];
+    widths.forEach(w => {
+      const c = document.createElement('col');
+      c.style.width = w;
+      colgroup.appendChild(c);
+    });
+  } else {
+    // restore original registry headers
+    // registry headers with per-column filter buttons (only shown/used in registry mode)
+    theadRow.innerHTML = `
+      <th>Nombre (Cong.) <button class="col-filter" data-idx="0" title="Filtrar columna">🔍</button></th>
+      <th>Nombre <button class="col-filter" data-idx="1" title="Filtrar columna">🔍</button></th>
+      <th>Apellido Paterno <button class="col-filter" data-idx="2" title="Filtrar columna">🔍</button></th>
+      <th>Apellido Materno <button class="col-filter" data-idx="3" title="Filtrar columna">🔍</button></th>
+      <th>Grupo <button class="col-filter" data-idx="4" title="Filtrar columna">🔍</button></th>
+      <th>Privilegio <button class="col-filter" data-idx="5" title="Filtrar columna">🔍</button></th>
+      <th>Designación <button class="col-filter" data-idx="6" title="Filtrar columna">🔍</button></th>
+      <th>Sexo <button class="col-filter" data-idx="7" title="Filtrar columna">🔍</button></th>
+      <th>Esp <button class="col-filter" data-idx="8" title="Filtrar columna">🔍</button></th>
+      <th>Fecha Nacimiento <button class="col-filter" data-idx="9" title="Filtrar columna">🔍</button></th>
+      <th>Fecha Bautismo <button class="col-filter" data-idx="10" title="Filtrar columna">🔍</button></th>
+      <th>Dirección <button class="col-filter" data-idx="11" title="Filtrar columna">🔍</button></th>
+      <th>Teléfono <button class="col-filter" data-idx="12" title="Filtrar columna">🔍</button></th>
+      <th>Contacto Emergencia <button class="col-filter" data-idx="13" title="Filtrar columna">🔍</button></th>
     `;
-    
-    table.appendChild(row);
+    // restore original colgroup sizing if none persisted
+    colgroup.innerHTML = '';
+    const original = ['160px','140px','160px','140px','100px','110px','140px','64px','64px','120px','120px','220px','120px','180px'];
+    original.forEach(w => {
+      const c = document.createElement('col');
+      c.style.width = w;
+      colgroup.appendChild(c);
+    });
+  }
+
+  // restore saved col widths after adjusting columns
+  const saved = loadColWidths();
+  if(saved && saved.length){
+    for(let i=0;i<colgroup.children.length && i<saved.length;i++){
+      if(saved[i]) colgroup.children[i].style.width = saved[i];
+    }
+  }
+
+  const q = filter.trim().toLowerCase();
+  // base filtering by global search text
+  let list = people.filter(p => {
+    if(!q) return true;
+    return [
+      p.congName, p.firstName, p.lastNameP, p.lastNameM, p.group, p.privilege,
+      p.designation, p.sex, p.esp, p.birthDate, p.baptismDate,
+      p.address, p.phone, p.emergencyContact
+    ].join(' ').toLowerCase().includes(q);
   });
 
-  ventasPanel.appendChild(table);
-}
+  // apply per-column filters: support both Registry and Activity views.
+  // In Registry mode we filter directly on person properties.
+  // In Activity mode we resolve values from the person's selected month (activities._lastMonth).
+  const activeColFilters = getColumnFilters();
+  if(Object.keys(activeColFilters).length){
+    for(const [key, val] of Object.entries(activeColFilters)){
+      if(!val) continue;
 
-function updateOtroVentasPanel() {
-  const ventasPanel = document.querySelector('.ventas-otro .otro-content');
-  ventasPanel.innerHTML = '';
+      // construct an array of needle values (support typed comma list or selected-array)
+      let needles = [];
+      if(Array.isArray(val)) {
+        needles = val.map(x => String(x).trim().toLowerCase()).filter(Boolean);
+      } else {
+        // split typed input by commas to allow multiple typed values
+        needles = String(val).split(',').map(x => x.trim()).filter(Boolean).map(x => x.toLowerCase());
+      }
+      // if nothing to match skip
+      if(needles.length === 0) continue;
 
-  const table = document.createElement('div');
-  table.className = 'ventas-table';
+      if(!activityMode){
+        // Registry: match against person property value
+        list = list.filter(p => {
+          const v = (p[key] || '').toString().toLowerCase();
+          return needles.some(n => v.includes(n));
+        });
+      } else {
+        // Activity: interpret ACT_COLUMN_KEYS semantics
+        list = list.filter(p => {
+          // only consider persons that have numeric group (activityMode already filters this but keep safe)
+          const g = (p.group || '').toString().trim();
+          if(!/^\d+$/.test(g)) return false;
 
-  const header = document.createElement('div');
-  header.className = 'ventas-table-header';
-  header.innerHTML = `
-    <div class="ventas-table-cell">Semana</div>
-    <div class="ventas-table-cell">Fecha</div>
-    <div class="ventas-table-cell">Código</div>
-    <div class="ventas-table-cell">Monto</div>
-    <div class="ventas-table-cell">Tipo Pago</div>
-    <div class="ventas-table-cell">REC</div>
-    <div class="ventas-table-cell">COM</div>
-    <div class="ventas-table-cell">Porc. Otro</div>
-  `;
-  table.appendChild(header);
+          // determine reference month for this person
+          const monthKey = (p.activities && p.activities._lastMonth) ? p.activities._lastMonth : '';
+          let value = '';
 
-  const otroSales = salonSales
-    .filter(sale => sale.hairdresser === 'OTRO')
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+          switch(key){
+            case 'activityMonth':
+              // consider the person's _lastMonth or any month keys if missing
+              value = monthKey || '';
+              break;
+            case 'aux':
+            case 'hours':
+            case 'studies':
+            case 'comments':
+              if(p.activities && monthKey && p.activities[monthKey]){
+                const act = p.activities[monthKey];
+                value = (act[key] !== undefined && act[key] !== null) ? String(act[key]) : '';
+              } else {
+                value = '';
+              }
+              break;
+            default:
+              // map other activity columns back to person fields (congName, group, privilege, designation)
+              value = (p[key] || '').toString();
+              break;
+          }
+          value = value.toLowerCase();
+          return needles.some(n => value.includes(n));
+        });
+      }
+    }
+  }
 
-  otroSales.forEach(sale => {
-    const isCardPayment = sale.paymentType === 'debito' || sale.paymentType === 'credito';
-    const hairdresserConfig = hairdresserCommissions.otro;
-    // Only calculate REC for card payments
-    const recAmount = isCardPayment ? 
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-      
-    // Always calculate COM  
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    const totalPercentage = recAmount + comAmount;
-    
-    const row = document.createElement('div');
-    row.className = 'ventas-table-row';
-    row.innerHTML = `
-      <div class="ventas-table-cell">Sem ${sale.week}</div>
-      <div class="ventas-table-cell">${formatDate(sale.date)}</div>
-      <div class="ventas-table-cell">${sale.serviceCode}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(sale.amount)}</div>
-      <div class="ventas-table-cell payment-type ${sale.paymentType}">${sale.paymentType}</div>
-      <div class="ventas-table-cell amount">${isCardPayment ? formatCurrency(recAmount) : '-'}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(comAmount)}</div>
-      <div class="ventas-table-cell amount">${formatCurrency(totalPercentage)}</div>
-    `;
-    
-    table.appendChild(row);
-  });
+  // When in Activity mode, only show people who have a numeric value in the "group" field.
+  // This enforces the rule: "Actividad" must only display records with a number in Grupo.
+  if(activityMode){
+    list = list.filter(p => {
+      const g = (p.group || '').toString().trim();
+      return /^\d+$/.test(g);
+    });
+  }
 
-  ventasPanel.appendChild(table);
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.commission-value').forEach(element => {
-    element.addEventListener('dblclick', editCommissionValue);
-  });
-});
-
-function editCommissionValue(e) {
-  const element = e.target;
-  const currentValue = parseFloat(element.textContent);
-  const type = element.dataset.type;
-  const hairdresser = element.dataset.hairdresser;
-
-  // Create input element
-  const input = document.createElement('input');
-  input.type = 'number';
-  input.value = currentValue;
-  input.min = 0;
-  input.max = 100;
-  input.step = 0.1;
-  input.style.width = '50px';
-  input.style.fontSize = 'inherit';
-  input.style.padding = '2px';
-  input.style.textAlign = 'center';
-
-  // Replace span with input
-  element.replaceWith(input);
-  input.focus();
-  input.select();
-
-  function saveEdit() {
-    const newValue = parseFloat(input.value);
-    if (!isNaN(newValue) && newValue >= 0 && newValue <= 100) {
-      hairdresserCommissions[hairdresser][type] = newValue;
-      
-      // Create new span element
-      const newSpan = document.createElement('span');
-      newSpan.className = 'commission-value';
-      newSpan.dataset.type = type;
-      newSpan.dataset.hairdresser = hairdresser;
-      newSpan.textContent = newValue + '%';
-      
-      // Add event listener to new span
-      newSpan.addEventListener('dblclick', editCommissionValue);
-      
-      input.replaceWith(newSpan);
-      
-      // Save to localStorage
-      localStorage.setItem('hairdresserCommissions', JSON.stringify(hairdresserCommissions));
-      
-      // Update any related calculations if needed
-      updateHairdresserPanels();
+  // update total count badge:
+  // - In Activity mode show the number of records currently displayed in the activity panel (after all filters).
+  // - In Registry mode preserve previous behaviour: if any column filter is active show displayed count, otherwise show total records.
+  if(totalCountEl){
+    if(activityMode){
+      totalCountEl.textContent = String(list.length);
     } else {
-      // If invalid value, revert to previous value
-      const revertSpan = document.createElement('span');
-      revertSpan.className = 'commission-value';
-      revertSpan.dataset.type = type;
-      revertSpan.dataset.hairdresser = hairdresser;
-      revertSpan.textContent = hairdresserCommissions[hairdresser][type] + '%';
-      revertSpan.addEventListener('dblclick', editCommissionValue);
-      safeReplaceWith(input, revertSpan);
+      const filtersActive = Object.keys(columnFiltersRegistry).length > 0;
+      totalCountEl.textContent = String(filtersActive ? list.length : people.length);
     }
   }
 
-  input.addEventListener('blur', saveEdit);
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveEdit();
-    }
-  });
-}
-
-// Load commission rates from localStorage on page load
-function loadCommissionRates() {
-  const savedCommissions = localStorage.getItem('hairdresserCommissions');
-  if (savedCommissions) {
-    hairdresserCommissions = JSON.parse(savedCommissions);
-    
-    // Update displayed values
-    document.querySelectorAll('.commission-value').forEach(element => {
-      const type = element.dataset.type;
-      const hairdresser = element.dataset.hairdresser;
-      element.textContent = hairdresserCommissions[hairdresser][type] + '%';
-    });
-  }
-}
-
-// Call this function when page loads
-document.addEventListener('DOMContentLoaded', loadCommissionRates);
-
-// Add this to your existing updateHairdresserPanels function
-function updateHairdresserPanels() {
-  updateAldoVentasPanel();
-  updateAldoSemanasPanel();
-  updateAldoTotalesPanel();
-  updateAldoBoletasPanel();
-  updateMarcosVentasPanel();
-  updateMarcosSemanasPanel();
-  updateMarcosTotalesPanel();
-  updateMarcosBoletasPanel(); 
-  updateOtroVentasPanel();
-  updateOtroSemanasPanel();
-  updateOtroTotalesPanel();
-  updateOtroBoletasPanel();
-  updateFigaroTotalesFinales(); // Add this line
-}
-
-function updateOtroSemanasPanel() {
-  const semanasPanel = document.querySelector('.semanas-otro .otro-content');
-  semanasPanel.innerHTML = '';
-
-  // Get all Otro's sales
-  const otroSales = salonSales.filter(sale => sale.hairdresser === 'OTRO');
-
-  // Group sales by week
-  const salesByWeek = {};
-  for (let week = 1; week <= 5; week++) {
-    salesByWeek[week] = {
-      totalVentas: 0,
-      totalTarjeta: 0,
-      totalPorc: 0
-    };
-  }
-
-  otroSales.forEach(sale => {
-    const weekNumber = parseInt(sale.week);
-    const weekData = salesByWeek[weekNumber];
-    weekData.totalVentas += sale.amount;
-    
-    if (sale.paymentType === 'debito' || sale.paymentType === 'credito') {
-      weekData.totalTarjeta += sale.amount;
-    }
-
-    const hairdresserConfig = hairdresserCommissions.otro;
-    const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    weekData.totalPorc += (recAmount + comAmount);
-  });
-
-  // Create weekly summary cards in order from week 1 to 5
-  Object.entries(salesByWeek)
-    .sort(([weekA], [weekB]) => parseInt(weekA) - parseInt(weekB))
-    .forEach(([week, data]) => {
-      const weekCard = document.createElement('div');
-      weekCard.className = 'week-summary-card';
-      
-      const diferencia = data.totalTarjeta - data.totalPorc;
-
-      weekCard.innerHTML = `
-        <h4>Semana ${week}</h4>
-        <div class="week-summary-grid">
-          <div class="week-summary-item">
-            <span class="summary-label">Total Ventas Otro:</span>
-            <span class="summary-value">${formatCurrency(data.totalVentas)}</span>
-          </div>
-          <div class="week-summary-item">
-            <span class="summary-label">Total Venta Tarjeta Otro:</span>
-            <span class="summary-value">${formatCurrency(data.totalTarjeta)}</span>
-          </div>
-          <div class="week-summary-item">
-            <span class="summary-label">Total Porc. Otro:</span>
-            <span class="summary-value">${formatCurrency(data.totalPorc)}</span>
-          </div>
-          <div class="week-summary-item">
-            <span class="summary-label">Dif. Otro:</span>
-            <span class="summary-value">${formatCurrency(diferencia)}</span>
-          </div>
-        </div>
-      `;
-
-      semanasPanel.appendChild(weekCard);
-    });
-
-  if (Object.keys(salesByWeek).length === 0) {
-    semanasPanel.innerHTML = '<p class="no-data-message">No hay datos para mostrar</p>';
-  }
-}
-
-function updateAldoTotalesPanel() {
-  const totalesPanel = document.querySelector('.totales-aldo .aldo-content');
-  totalesPanel.innerHTML = '';
-
-  // Get all Aldo's sales
-  const aldoSales = salonSales.filter(sale => sale.hairdresser === 'ALDO');
-
-  // Calculate totals
-  const totals = {
-    totalVentas: 0,
-    totalTarjeta: 0,
-    totalPorc: 0
-  };
-
-  aldoSales.forEach(sale => {
-    totals.totalVentas += sale.amount;
-    
-    if (sale.paymentType === 'debito' || sale.paymentType === 'credito') {
-      totals.totalTarjeta += sale.amount;
-    }
-
-    const hairdresserConfig = hairdresserCommissions.aldo;
-    const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    totals.totalPorc += (recAmount + comAmount);
-  });
-
-  // Calculate retention
-  const retencion = totals.totalVentas * (hairdresserCommissions.aldo.ret / 100);
-
-  // Create total items
-  const totalsHTML = `
-    <div class="final-total-item">
-      <span class="final-total-label">TF Ventas Aldo:</span>
-      <span class="final-total-value">${formatCurrency(totals.totalVentas)}</span>
-    </div>
-    <div class="final-total-item">
-      <span class="final-total-label">TF Venta Tarjeta Aldo:</span>
-      <span class="final-total-value">${formatCurrency(totals.totalTarjeta)}</span>
-    </div>
-    <div class="final-total-item">
-      <span class="final-total-label">TF Porc. Aldo:</span>
-      <span class="final-total-value">${formatCurrency(totals.totalPorc)}</span>
-    </div>
-    <div class="final-total-item">
-      <span class="final-total-label">Retención Aldo:</span>
-      <span class="final-total-value">${formatCurrency(retencion)}</span>
-    </div>
-  `;
-
-  totalesPanel.innerHTML = totalsHTML;
-}
-
-function updateMarcosTotalesPanel() {
-  const totalesPanel = document.querySelector('.totales-marcos .marcos-content');
-  totalesPanel.innerHTML = '';
-
-  // Get all Marcos' sales
-  const marcosSales = salonSales.filter(sale => sale.hairdresser === 'MARCOS');
-
-  // Calculate totals
-  const totals = {
-    totalVentas: 0,
-    totalTarjeta: 0,
-    totalPorc: 0
-  };
-
-  marcosSales.forEach(sale => {
-    totals.totalVentas += sale.amount;
-    
-    if (sale.paymentType === 'debito' || sale.paymentType === 'credito') {
-      totals.totalTarjeta += sale.amount;
-    }
-
-    const hairdresserConfig = hairdresserCommissions.marcos;
-    const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    totals.totalPorc += (recAmount + comAmount);
-  });
-
-  // Calculate retention
-  const retencion = totals.totalVentas * (hairdresserCommissions.marcos.ret / 100);
-
-  // Create total items
-  const totalsHTML = `
-    <div class="final-total-item">
-      <span class="final-total-label">TF Ventas Marcos:</span>
-      <span class="final-total-value">${formatCurrency(totals.totalVentas)}</span>
-    </div>
-    <div class="final-total-item">
-      <span class="final-total-label">TF Venta Tarjeta Marcos:</span>
-      <span class="final-total-value">${formatCurrency(totals.totalTarjeta)}</span>
-    </div>
-    <div class="final-total-item">
-      <span class="final-total-label">TF Porc. Marcos:</span>
-      <span class="final-total-value">${formatCurrency(totals.totalPorc)}</span>
-    </div>
-    <div class="final-total-item">
-      <span class="final-total-label">Retención Marcos:</span>
-      <span class="final-total-value">${formatCurrency(retencion)}</span>
-    </div>
-  `;
-
-  totalesPanel.innerHTML = totalsHTML;
-}
-
-function updateOtroTotalesPanel() {
-  const totalesPanel = document.querySelector('.totales-otro .otro-content');
-  totalesPanel.innerHTML = '';
-
-  // Get all Otro's sales
-  const otroSales = salonSales.filter(sale => sale.hairdresser === 'OTRO');
-
-  // Calculate totals
-  const totals = {
-    totalVentas: 0,
-    totalTarjeta: 0,
-    totalPorc: 0
-  };
-
-  otroSales.forEach(sale => {
-    totals.totalVentas += sale.amount;
-    
-    if (sale.paymentType === 'debito' || sale.paymentType === 'credito') {
-      totals.totalTarjeta += sale.amount;
-    }
-
-    const hairdresserConfig = hairdresserCommissions.otro;
-    const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    totals.totalPorc += (recAmount + comAmount);
-  });
-
-  // Calculate retention
-  const retencion = totals.totalVentas * (hairdresserCommissions.otro.ret / 100);
-
-  // Create total items
-  const totalsHTML = `
-    <div class="final-total-item">
-      <span class="final-total-label">TF Ventas Otro:</span>
-      <span class="final-total-value">${formatCurrency(totals.totalVentas)}</span>
-    </div>
-    <div class="final-total-item">
-      <span class="final-total-label">TF Venta Tarjeta Otro:</span>
-      <span class="final-total-value">${formatCurrency(totals.totalTarjeta)}</span>
-    </div>
-    <div class="final-total-item">
-      <span class="final-total-label">TF Porc. Otro:</span>
-      <span class="final-total-value">${formatCurrency(totals.totalPorc)}</span>
-    </div>
-    <div class="final-total-item">
-      <span class="final-total-label">Retención Otro:</span>
-      <span class="final-total-value">${formatCurrency(retencion)}</span>
-    </div>
-  `;
-
-  totalesPanel.innerHTML = totalsHTML;
-}
-
-function updateAldoBoletasPanel() {
-  const boletasPanel = document.querySelector('.boletas-aldo .aldo-content');
-  boletasPanel.innerHTML = '';
-
-  // Get all Aldo's sales
-  const aldoSales = salonSales.filter(sale => sale.hairdresser === 'ALDO');
-
-  // Group sales by date
-  const salesByDate = aldoSales.reduce((acc, sale) => {
-    const date = new Date(sale.date).toISOString().split('T')[0];
-    if (!acc[date]) {
-      acc[date] = {
-        efectivo: 0,
-        tarjeta: 0
-      };
-    }
-    if (sale.paymentType === 'efectivo') {
-      acc[date].efectivo += sale.amount;
-    } else {
-      acc[date].tarjeta += sale.amount;
-    }
-    return acc;
-  }, {});
-
-  if (Object.keys(salesByDate).length === 0) {
-    boletasPanel.innerHTML = '<p class="no-sales-message">No hay ventas registradas</p>';
-    return;
-  }
-
-  // Create daily cards sorted by date (newest first)
-  Object.entries(salesByDate)
-    .sort(([dateA], [dateB]) => new Date(dateB) - new Date(dateA))
-    .forEach(([date, totals]) => {
-      const dailyCard = document.createElement('div');
-      dailyCard.className = 'daily-sales-card';
-      
-      const totalDay = totals.efectivo + totals.tarjeta;
-      const boletaKey = `aldo_${date}`;
-
-      dailyCard.innerHTML = `
-        <h4>Fecha: ${formatDate(date)}</h4>
-        <div class="daily-sales-grid">
-          <div class="daily-sales-item">
-            <span class="daily-sales-label">
-              Total Ventas Efectivo:
-              <input type="text" 
-                     class="boleta-input"
-                     data-type="efectivo"
-                     data-date="${date}"
-                     data-hairdresser="aldo"
-                     placeholder="N° Boleta"
-                     value="${salesBoletas[`${boletaKey}_efectivo`] || ''}"
-              >
-            </span>
-            <span class="daily-sales-value">${formatCurrency(totals.efectivo)}</span>
-          </div>
-          <div class="daily-sales-item">
-            <span class="daily-sales-label">
-              Total Ventas Tarjeta:
-              <input type="text"
-                     class="boleta-input"
-                     data-type="tarjeta"
-                     data-date="${date}"
-                     data-hairdresser="aldo"
-                     placeholder="N° Boleta"
-                     value="${salesBoletas[`${boletaKey}_tarjeta`] || ''}"
-              >
-            </span>
-            <span class="daily-sales-value">${formatCurrency(totals.tarjeta)}</span>
-          </div>
-          <div class="daily-sales-item total-day">
-            <span class="daily-sales-label">Total Ventas Día:</span>
-            <span class="daily-sales-value">${formatCurrency(totalDay)}</span>
-          </div>
-        </div>
-      `;
-
-      boletasPanel.appendChild(dailyCard);
-    });
-
-  // Add event listeners for boleta inputs
-  boletasPanel.querySelectorAll('.boleta-input').forEach(input => {
-    input.addEventListener('change', (e) => {
-      const { date, type, hairdresser } = e.target.dataset;
-      const key = `${hairdresser}_${date}_${type}`;
-      salesBoletas[key] = e.target.value;
-      saveSalonToLocalStorage();
-    });
-  });
-}
-
-function updateMarcosBoletasPanel() {
-  const boletasPanel = document.querySelector('.boletas-marcos .marcos-content');
-  boletasPanel.innerHTML = '';
-
-  // Get all Marcos' sales
-  const marcosSales = salonSales.filter(sale => sale.hairdresser === 'MARCOS');
-
-  // Group sales by date
-  const salesByDate = marcosSales.reduce((acc, sale) => {
-    const date = new Date(sale.date).toISOString().split('T')[0];
-    if (!acc[date]) {
-      acc[date] = {
-        efectivo: 0,
-        tarjeta: 0
-      };
-    }
-    if (sale.paymentType === 'efectivo') {
-      acc[date].efectivo += sale.amount;
-    } else {
-      acc[date].tarjeta += sale.amount;
-    }
-    return acc;
-  }, {});
-
-  if (Object.keys(salesByDate).length === 0) {
-    boletasPanel.innerHTML = '<p class="no-sales-message">No hay ventas registradas</p>';
-    return;
-  }
-
-  // Create daily cards sorted by date (newest first)
-  Object.entries(salesByDate)
-    .sort(([dateA], [dateB]) => new Date(dateB) - new Date(dateA))
-    .forEach(([date, totals]) => {
-      const dailyCard = document.createElement('div');
-      dailyCard.className = 'daily-sales-card';
-      
-      const totalDay = totals.efectivo + totals.tarjeta;
-      const boletaKey = `marcos_${date}`;
-
-      dailyCard.innerHTML = `
-        <h4>Fecha: ${formatDate(date)}</h4>
-        <div class="daily-sales-grid">
-          <div class="daily-sales-item">
-            <span class="daily-sales-label">
-              Total Ventas Efectivo:
-              <input type="text" 
-                     class="boleta-input"
-                     data-type="efectivo"
-                     data-date="${date}"
-                     data-hairdresser="marcos"
-                     placeholder="N° Boleta"
-                     value="${salesBoletas[`${boletaKey}_efectivo`] || ''}"
-              >
-            </span>
-            <span class="daily-sales-value">${formatCurrency(totals.efectivo)}</span>
-          </div>
-          <div class="daily-sales-item">
-            <span class="daily-sales-label">
-              Total Ventas Tarjeta:
-              <input type="text"
-                     class="boleta-input"
-                     data-type="tarjeta"
-                     data-date="${date}"
-                     data-hairdresser="marcos"
-                     placeholder="N° Boleta"
-                     value="${salesBoletas[`${boletaKey}_tarjeta`] || ''}"
-              >
-            </span>
-            <span class="daily-sales-value">${formatCurrency(totals.tarjeta)}</span>
-          </div>
-          <div class="daily-sales-item total-day">
-            <span class="daily-sales-label">Total Ventas Día:</span>
-            <span class="daily-sales-value">${formatCurrency(totalDay)}</span>
-          </div>
-        </div>
-      `;
-
-      boletasPanel.appendChild(dailyCard);
-    });
-
-  // Add event listeners for boleta inputs
-  boletasPanel.querySelectorAll('.boleta-input').forEach(input => {
-    input.addEventListener('change', (e) => {
-      const { date, type, hairdresser } = e.target.dataset;
-      const key = `${hairdresser}_${date}_${type}`;
-      salesBoletas[key] = e.target.value;
-      saveSalonToLocalStorage();
-    });
-  });
-}
-
-function updateOtroBoletasPanel() {
-  const boletasPanel = document.querySelector('.boletas-otro .otro-content');
-  boletasPanel.innerHTML = '';
-
-  // Get all Otro's sales
-  const otroSales = salonSales.filter(sale => sale.hairdresser === 'OTRO');
-
-  // Group sales by date
-  const salesByDate = otroSales.reduce((acc, sale) => {
-    const date = new Date(sale.date).toISOString().split('T')[0];
-    if (!acc[date]) {
-      acc[date] = {
-        efectivo: 0,
-        tarjeta: 0
-      };
-    }
-    if (sale.paymentType === 'efectivo') {
-      acc[date].efectivo += sale.amount;
-    } else {
-      acc[date].tarjeta += sale.amount;
-    }
-    return acc;
-  }, {});
-
-  if (Object.keys(salesByDate).length === 0) {
-    boletasPanel.innerHTML = '<p class="no-sales-message">No hay ventas registradas</p>';
-    return;
-  }
-
-  // Create daily cards sorted by date (newest first)
-  Object.entries(salesByDate)
-    .sort(([dateA], [dateB]) => new Date(dateB) - new Date(dateA))
-    .forEach(([date, totals]) => {
-      const dailyCard = document.createElement('div');
-      dailyCard.className = 'daily-sales-card';
-      
-      const totalDay = totals.efectivo + totals.tarjeta;
-      const boletaKey = `otro_${date}`;
-
-      dailyCard.innerHTML = `
-        <h4>Fecha: ${formatDate(date)}</h4>
-        <div class="daily-sales-grid">
-          <div class="daily-sales-item">
-            <span class="daily-sales-label">
-              Total Ventas Efectivo:
-              <input type="text" 
-                     class="boleta-input"
-                     data-type="efectivo"
-                     data-date="${date}"
-                     data-hairdresser="otro"
-                     placeholder="N° Boleta"
-                     value="${salesBoletas[`${boletaKey}_efectivo`] || ''}"
-              >
-            </span>
-            <span class="daily-sales-value">${formatCurrency(totals.efectivo)}</span>
-          </div>
-          <div class="daily-sales-item">
-            <span class="daily-sales-label">
-              Total Ventas Tarjeta:
-              <input type="text"
-                     class="boleta-input"
-                     data-type="tarjeta"
-                     data-date="${date}"
-                     data-hairdresser="otro"
-                     placeholder="N° Boleta"
-                     value="${salesBoletas[`${boletaKey}_tarjeta`] || ''}"
-              >
-            </span>
-            <span class="daily-sales-value">${formatCurrency(totals.tarjeta)}</span>
-          </div>
-          <div class="daily-sales-item total-day">
-            <span class="daily-sales-label">Total Ventas Día:</span>
-            <span class="daily-sales-value">${formatCurrency(totalDay)}</span>
-          </div>
-        </div>
-      `;
-
-      boletasPanel.appendChild(dailyCard);
-    });
-
-  // Add event listeners for boleta inputs
-  boletasPanel.querySelectorAll('.boleta-input').forEach(input => {
-    input.addEventListener('change', (e) => {
-      const { date, type, hairdresser } = e.target.dataset;
-      const key = `${hairdresser}_${date}_${type}`;
-      salesBoletas[key] = e.target.value;
-      saveSalonToLocalStorage();
-    });
-  });
-}
-
-function updateHairdresserPanels() {
-  updateAldoVentasPanel();
-  updateAldoSemanasPanel();
-  updateAldoTotalesPanel();
-  updateAldoBoletasPanel();
-  updateMarcosVentasPanel();
-  updateMarcosSemanasPanel();
-  updateMarcosTotalesPanel();
-  updateMarcosBoletasPanel();
-  updateOtroVentasPanel();
-  updateOtroSemanasPanel();
-  updateOtroTotalesPanel();
-  updateOtroBoletasPanel();
-}
-
-function updateFigaroSemanasPanel() {
-  const semanasContent = document.querySelector('.figaro-semanas-content');
-  semanasContent.innerHTML = '';
-
-  // Add fixed labels column
-  const labelsColumn = document.createElement('div');
-  labelsColumn.className = 'figaro-totals-labels';
-  
-  const labels = [
-    'Total Ventas',
-    'Total Venta Tarjeta',
-    'Total Porc.',
-    'Diferencia',  
-    'Venta Semanal',
-    'Venta Tarjeta Semanal',
-    'Porc. Semanal',
-    'Diferencia Semanal',
-    'Prom. Porc. Día'  // Added this label
-  ];
-  
-  labels.forEach(label => {
-    const div = document.createElement('div');
-    div.className = 'total-label';
-    div.textContent = label;
-    labelsColumn.appendChild(div);
-  });
-  
-  semanasContent.appendChild(labelsColumn);
-
-  // Process data for each week
-  const weeksData = {};
-  
-  // Initialize data structure for weeks 1-5
-  for (let week = 1; week <= 5; week++) {
-    weeksData[week] = {
-      ALDO: {
-        totalVentas: 0,
-        totalTarjeta: 0,
-        totalPorc: 0,
-        diferencia: 0
-      },
-      MARCOS: {
-        totalVentas: 0,
-        totalTarjeta: 0,
-        totalPorc: 0,
-        diferencia: 0
-      },
-      OTRO: {
-        totalVentas: 0,
-        totalTarjeta: 0,
-        totalPorc: 0,
-        diferencia: 0
-      },
-      ventaSemanal: 0,
-      ventaTarjetaSemanal: 0,
-      porcSemanal: 0,
-      diferenciaSemanal: 0,
-      salesDays: new Set() // Add a Set to track unique days with sales
-    };
-  }
-
-  // Calculate totals for each hairdresser by week
-  salonSales.forEach(sale => {
-    const weekData = weeksData[sale.week][sale.hairdresser];
-    
-    weekData.totalVentas += sale.amount;
-    
-    if (sale.paymentType === 'debito' || sale.paymentType === 'credito') {
-      weekData.totalTarjeta += sale.amount;
-      weeksData[sale.week].ventaTarjetaSemanal += sale.amount;
-    }
-
-    const hairdresserConfig = hairdresserCommissions[sale.hairdresser.toLowerCase()];
-    const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-      sale.amount * (hairdresserConfig.rec / 100) : 0;
-    const comAmount = sale.amount * (hairdresserConfig.com / 100);
-    weekData.totalPorc += (recAmount + comAmount);
-    
-    weekData.diferencia = weekData.totalTarjeta - weekData.totalPorc;
-    
-    // Add to weekly totals
-    weeksData[sale.week].ventaSemanal += sale.amount;
-    weeksData[sale.week].porcSemanal += (recAmount + comAmount);
-    
-    // Add the sale date to track unique days
-    weeksData[sale.week].salesDays.add(new Date(sale.date).toISOString().split('T')[0]);
-    
-    // Add to diferenciaSemanal only for MARCOS and OTRO
-    if (sale.hairdresser === 'MARCOS' || sale.hairdresser === 'OTRO') {
-      weeksData[sale.week].diferenciaSemanal = 
-        weeksData[sale.week].MARCOS.diferencia + 
-        weeksData[sale.week].OTRO.diferencia;
-    }
-  });
-
-  // Create week panels
-  Object.entries(weeksData)
-    .sort(([weekA], [weekB]) => parseInt(weekA) - parseInt(weekB)) 
-    .forEach(([week, weekData]) => {
-      const hasData = Object.values(weekData).some(hairdresser => 
-        typeof hairdresser === 'object' && hairdresser.totalVentas > 0
-      );
-      
-      if (!hasData) return;
-
-      const weekContainer = document.createElement('div');
-      weekContainer.className = 'week-summary-container';
-      
-      // Calculate promedio porc semanal
-      const promPorcSemanal = weekData.salesDays.size > 0 ? 
-        weekData.porcSemanal / weekData.salesDays.size : 0;
-
-      weekContainer.innerHTML = `
-        <h4>Semana ${week}</h4>
-        <div class="hairdresser-values">
-          ${['ALDO', 'MARCOS', 'OTRO'].map(hairdresser => {
-            const data = weekData[hairdresser];
-            if (data.totalVentas === 0) return '';
-            
-            return `
-              <div class="hairdresser-column">
-                <h5>${hairdresser}</h5>
-                <div class="value-row">${formatCurrency(data.totalVentas)}</div>
-                <div class="value-row">${formatCurrency(data.totalTarjeta)}</div>
-                <div class="value-row">${formatCurrency(data.totalPorc)}</div>
-                <div class="value-row ${data.diferencia >= 0 ? 'positive' : 'negative'}">
-                  ${formatCurrency(data.diferencia)}
-                </div>
-              </div>
-            `;
-          }).filter(Boolean).join('')}
-        </div>
-        <div class="venta-semanal">
-          ${formatCurrency(weekData.ventaSemanal)}
-        </div>
-        <div class="venta-tarjeta-semanal">
-          ${formatCurrency(weekData.ventaTarjetaSemanal)}
-        </div>
-        <div class="porc-semanal">
-          ${formatCurrency(weekData.porcSemanal)}
-        </div>
-        <div class="diferencia-semanal">
-          ${formatCurrency(weekData.diferenciaSemanal)}
-        </div>
-        <div class="prom-porc-semanal">
-          ${formatCurrency(promPorcSemanal)}
-        </div>
-      `;
-
-      semanasContent.appendChild(weekContainer);
-    });
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  loadSalonFromLocalStorage();
-  updateFigaroSemanasPanel();
-});
-
-function updateFigaroTotalesFinales() {
-  // Get all Aldo's sales
-  const aldoSales = salonSales.filter(sale => sale.hairdresser === 'ALDO');
-  const marcosSales = salonSales.filter(sale => sale.hairdresser === 'MARCOS');
-  const otroSales = salonSales.filter(sale => sale.hairdresser === 'OTRO');
-
-  // Determine hairdressers with sales
-  const hasAldoSales = aldoSales.length > 0;
-  const hasMarcosSales = marcosSales.length > 0;
-  const hasOtroSales = otroSales.length > 0;
-
-  // Calculate totals for each hairdresser
-  const totals = {
-    ALDO: {
-      ventas: aldoSales.reduce((sum, sale) => sum + sale.amount, 0),
-      ventaTarjeta: aldoSales
-        .filter(sale => sale.paymentType === 'debito' || sale.paymentType === 'credito')
-        .reduce((sum, sale) => sum + sale.amount, 0),
-      porc: aldoSales.reduce((sum, sale) => {
-        const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-          sale.amount * (hairdresserCommissions.aldo.rec / 100) : 0;
-        const comAmount = sale.amount * (hairdresserCommissions.aldo.com / 100);
-        return sum + (recAmount + comAmount);
-      }, 0)
-    },
-    MARCOS: {
-      ventas: marcosSales.reduce((sum, sale) => sum + sale.amount, 0),
-      ventaTarjeta: marcosSales
-        .filter(sale => sale.paymentType === 'debito' || sale.paymentType === 'credito')
-        .reduce((sum, sale) => sum + sale.amount, 0),
-      porc: marcosSales.reduce((sum, sale) => {
-        const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-          sale.amount * (hairdresserCommissions.marcos.rec / 100) : 0;
-        const comAmount = sale.amount * (hairdresserCommissions.marcos.com / 100);
-        return sum + (recAmount + comAmount);
-      }, 0)
-    },
-    OTRO: {
-      ventas: otroSales.reduce((sum, sale) => sum + sale.amount, 0),
-      ventaTarjeta: otroSales
-        .filter(sale => sale.paymentType === 'debito' || sale.paymentType === 'credito')
-        .reduce((sum, sale) => sum + sale.amount, 0),
-      porc: otroSales.reduce((sum, sale) => {
-        const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-          sale.amount * (hairdresserCommissions.otro.rec / 100) : 0;
-        const comAmount = sale.amount * (hairdresserCommissions.otro.com / 100);
-        return sum + (recAmount + comAmount);
-      }, 0)
-    }
-  };
-
-  const tableBody = document.querySelector('.totales-table tbody');
-  tableBody.innerHTML = ''; // Clear existing rows
-
-  const headerRow = document.querySelector('.totales-table thead tr');
-  headerRow.innerHTML = ''; // Clear existing headers
-
-  headerRow.innerHTML += `<th style="text-align: left;">TOTALES</th>`;
-  if (hasAldoSales) headerRow.innerHTML += `<th>ALDO</th>`;
-  if (hasMarcosSales) headerRow.innerHTML += `<th>MARCOS</th>`;
-  if (hasOtroSales) headerRow.innerHTML += `<th>OTRO</th>`;
-
-
-  const rowTypes = [
-    { label: 'TF Ventas', dataKeys: ['ventas'] },
-    { label: 'TF Venta Tarjeta', dataKeys: ['ventaTarjeta'] },
-    { label: 'TF Porc.', dataKeys: ['porc'] },
-    { label: 'Retención', dataKeys: ['ventas'], calculateRetention: true },
-    { label: 'Líquido', dataKeys: ['ventas', 'porc'], calculateLiquido: true } // Add new row type
-  ];
-
-  rowTypes.forEach(rowType => {
+  if(list.length === 0){
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td style="text-align: left;">${rowType.label}</td>`;
-    if (hasAldoSales) {
-      const aldoValue = rowType.calculateRetention ? 
-        totals.ALDO.ventas * (hairdresserCommissions.aldo.ret / 100) :
-        rowType.calculateLiquido ?
-        totals.ALDO.ventas - totals.ALDO.porc : // Calculate líquido
-        totals.ALDO[rowType.dataKeys[0]];
-      tr.innerHTML += `<td>${formatCurrency(aldoValue)}</td>`;
-    }
-    if (hasMarcosSales) {
-      const marcosValue = rowType.calculateRetention ? 
-        totals.MARCOS.ventas * (hairdresserCommissions.marcos.ret / 100) :
-        rowType.calculateLiquido ?
-        totals.MARCOS.ventas - totals.MARCOS.porc : // Calculate líquido
-        totals.MARCOS[rowType.dataKeys[0]];
-      tr.innerHTML += `<td>${formatCurrency(marcosValue)}</td>`;
-    }
-    if (hasOtroSales) {
-      const otroValue = rowType.calculateRetention ? 
-        totals.OTRO.ventas * (hairdresserCommissions.otro.ret / 100) :
-        rowType.calculateLiquido ?
-        totals.OTRO.ventas - totals.OTRO.porc : // Calculate líquido
-        totals.OTRO[rowType.dataKeys[0]];
-      tr.innerHTML += `<td>${formatCurrency(otroValue)}</td>`;
-    }
-    tableBody.appendChild(tr);
-  });
-}
-
-function updateHairdresserPanels() {
-  updateAldoVentasPanel();
-  updateAldoSemanasPanel();
-  updateAldoTotalesPanel();
-  updateAldoBoletasPanel();
-  updateMarcosVentasPanel();
-  updateMarcosSemanasPanel();
-  updateMarcosTotalesPanel();
-  updateMarcosBoletasPanel();
-  updateOtroVentasPanel();
-  updateOtroSemanasPanel();
-  updateOtroTotalesPanel();
-  updateOtroBoletasPanel();
-  updateFigaroTotalesFinales(); // Add this line
-}
-
-function updateFigaroResumenMensualPanel() {
-  const resumenMensualContent = document.getElementById('resumenMensualContent');
-  resumenMensualContent.innerHTML = '';
-
-  const aldoSales = salonSales.filter(sale => sale.hairdresser === 'ALDO');
-  const marcosSales = salonSales.filter(sale => sale.hairdresser === 'MARCOS');
-  const otroSales = salonSales.filter(sale => sale.hairdresser === 'OTRO');
-
-  const totals = {
-    ALDO: {
-      ventas: aldoSales.reduce((sum, sale) => sum + sale.amount, 0),
-      ventaTarjeta: aldoSales
-        .filter(sale => sale.paymentType === 'debito' || sale.paymentType === 'credito')
-        .reduce((sum, sale) => sum + sale.amount, 0),
-      porc: aldoSales.reduce((sum, sale) => {
-        const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-          sale.amount * (hairdresserCommissions.aldo.rec / 100) : 0;
-        const comAmount = sale.amount * (hairdresserCommissions.aldo.com / 100);
-        return sum + (recAmount + comAmount);
-      }, 0)
-    },
-    MARCOS: {
-      ventas: marcosSales.reduce((sum, sale) => sum + sale.amount, 0),
-      ventaTarjeta: marcosSales
-        .filter(sale => sale.paymentType === 'debito' || sale.paymentType === 'credito')
-        .reduce((sum, sale) => sum + sale.amount, 0),
-      porc: marcosSales.reduce((sum, sale) => {
-        const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-          sale.amount * (hairdresserCommissions.marcos.rec / 100) : 0;
-        const comAmount = sale.amount * (hairdresserCommissions.marcos.com / 100);
-        return sum + (recAmount + comAmount);
-      }, 0)
-    },
-    OTRO: {
-      ventas: otroSales.reduce((sum, sale) => sum + sale.amount, 0),
-      ventaTarjeta: otroSales
-        .filter(sale => sale.paymentType === 'debito' || sale.paymentType === 'credito')
-        .reduce((sum, sale) => sum + sale.amount, 0),
-      porc: otroSales.reduce((sum, sale) => {
-        const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-          sale.amount * (hairdresserCommissions.otro.rec / 100) : 0;
-        const comAmount = sale.amount * (hairdresserCommissions.otro.com / 100);
-        return sum + (recAmount + comAmount);
-      }, 0)
-    }
-  };
-
-  const resumenTotals = {
-    ventas: totals.ALDO.ventas + totals.MARCOS.ventas + totals.OTRO.ventas,
-    ventaTarjeta: totals.ALDO.ventaTarjeta + totals.MARCOS.ventaTarjeta + totals.OTRO.ventaTarjeta,
-    porc: totals.ALDO.porc + totals.MARCOS.porc + totals.OTRO.porc
-  };
-
-  const uniqueSaleDays = new Set(salonSales.map(sale => new Date(sale.date).toISOString().split('T')[0]));
-  const numberOfSaleDays = uniqueSaleDays.size;
-
-  const promPorcDía = numberOfSaleDays > 0 ? 
-    resumenTotals.porc / numberOfSaleDays : 0;
-
-  const resumenHTML = `
-    <div class="resumen-mensual-item">
-      <span class="resumen-mensual-label">TF Ventas:</span>
-      <span class="resumen-mensual-value">${formatCurrency(resumenTotals.ventas)}</span>
-    </div>
-    <div class="resumen-mensual-item">
-      <span class="resumen-mensual-label">TF Venta Tarjeta:</span>
-      <span class="resumen-mensual-value">${formatCurrency(resumenTotals.ventaTarjeta)}</span>
-    </div>
-    <div class="resumen-mensual-item" style="background-color: rgba(39, 174, 96, 0.8); color: white; font-weight: bold;">
-      <span class="resumen-mensual-label" style="color: white; font-weight: bold;">TF Porc.:</span>
-      <span class="resumen-mensual-value" style="color: white; font-weight: bold;">${formatCurrency(resumenTotals.porc)}</span>
-    </div>
-    <div class="resumen-mensual-item">
-      <span class="resumen-mensual-label">Prom. Porc. Día:</span>
-      <span class="resumen-mensual-value">${formatCurrency(promPorcDía)}</span>
-    </div>
-  `;
-
-  resumenMensualContent.innerHTML = resumenHTML;
-}
-
-function updateHairdresserPanels() {
-  updateAldoVentasPanel();
-  updateAldoSemanasPanel();
-  updateAldoTotalesPanel();
-  updateAldoBoletasPanel();
-  updateMarcosVentasPanel();
-  updateMarcosSemanasPanel();
-  updateMarcosTotalesPanel();
-  updateMarcosBoletasPanel();
-  updateOtroVentasPanel();
-  updateOtroSemanasPanel();
-  updateOtroTotalesPanel();
-  updateOtroBoletasPanel();
-  updateFigaroTotalesFinales();
-  updateFigaroResumenMensualPanel(); // Call the new function here
-}
-
-function updateFigaroIndicatorsPanel() {
-  const indicatorsContent = document.querySelector('.figaro-panel.indicadores .figaro-content');
-
-  // Calculate unique worked days from sales
-  const uniqueSalesDays = new Set(
-    salonSales.map(sale => new Date(sale.date).toISOString().split('T')[0])
-  );
-  const diasTrabajados = uniqueSalesDays.size;
-
-  // Calculate meta dia
-  const metaDia = figaroIndicators.diasHabilesMes && figaroIndicators.metaMes ?
-    figaroIndicators.metaMes / figaroIndicators.diasHabilesMes : 0;
-
-  // Calculate total porcentajes and promedio diario
-  const totalPorcentajes = salonSales.reduce((total, sale) => {
-    const hairdresser = sale.hairdresser.toLowerCase();
-    const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-      sale.amount * (hairdresserCommissions[hairdresser].rec / 100) : 0;
-    const comAmount = sale.amount * (hairdresserCommissions[hairdresser].com / 100);
-    return total + (recAmount + comAmount);
-  }, 0);
-
-  const promPorcDia = diasTrabajados > 0 ? totalPorcentajes / diasTrabajados : 0;
-
-  // Calculate proyeccion
-  const proyeccion = promPorcDia * (figaroIndicators.diasHabilesMes || 0);
-
-  // Calculate ingreso faltante (proyeccion - totalPorcentajes)
-  const ingresoFaltante = proyeccion - totalPorcentajes;
-
-  // Calculate diferencia semanal for selected week from Semanas Figaro panel
-  const selectedWeek = figaroIndicators.selectedWeek || 1;
-  
-  // Find the diferencia semanal value for the selected week in the Semanas Figaro panel
-  let diferenciaSemanal = 0;
-  const weekContainers = document.querySelectorAll('.figaro-semanas-content .week-summary-container');
-  
-  weekContainers.forEach(container => {
-    const weekHeader = container.querySelector('h4');
-    if (weekHeader && weekHeader.textContent === `Semana ${selectedWeek}`) {
-      const diferenciaSemanalElement = container.querySelector('.diferencia-semanal');
-      if (diferenciaSemanalElement) {
-        const value = diferenciaSemanalElement.textContent.trim();
-        diferenciaSemanal = parseFloat(value.replace(/[^0-9-.,]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
-      }
-    }
-  });
-
-  indicatorsContent.innerHTML = `
-    <div class="indicator-item">
-      <span class="indicator-label">PROYECCION:</span>
-      <span class="indicator-value" id="proyeccionValue">
-        ${formatCurrency(proyeccion)}
-      </span>
-    </div>
-    <div class="indicator-item">
-      <span class="indicator-label">INGRESO FALTANTE:</span>
-      <span class="indicator-value" id="ingresoFaltanteValue">
-        ${formatCurrency(ingresoFaltante)}
-      </span>
-    </div>
-    <div class="indicator-item">
-      <span class="indicator-label">SEMANAS:</span>
-      <span class="indicator-value has-select">
-        <select id="weekSelector">
-          ${[1, 2, 3, 4, 5].map(week => `
-            <option value="${week}" ${figaroIndicators.selectedWeek === week ? 'selected' : ''}>
-              Semana ${week}
-            </option>
-          `).join('')}
-        </select>
-      </span>
-    </div>
-    <div class="indicator-item">
-      <span class="indicator-label">DIFERENCIA SEMANAL:</span>
-      <span class="indicator-value" id="diferenciaSemanalValue">
-        ${formatCurrency(diferenciaSemanal)}
-      </span>
-    </div>
-    <div class="indicator-item">
-      <span class="indicator-label">META MES:</span>
-      <span class="indicator-value editable" id="metaMesValue">
-        ${formatCurrency(figaroIndicators.metaMes) || 'Click para editar'}
-      </span>
-    </div>
-    <div class="indicator-item">
-      <span class="indicator-label">META DIA:</span>
-      <span class="indicator-value" id="metaDiaValue">
-        ${formatCurrency(metaDia)}
-      </span>
-    </div>
-    <div class="indicator-item">
-      <span class="indicator-label">DIAS HABILES MES:</span>
-      <span class="indicator-value editable" id="diasHabilesMesValue">
-        ${figaroIndicators.diasHabilesMes || 'Click para editar'}
-      </span>
-    </div>
-    <div class="indicator-item">
-      <span class="indicator-label">DIAS TRABAJADOS:</span>
-      <span class="indicator-value" id="diasTrabajadosValue">
-        ${diasTrabajados}
-      </span>
-    </div>
-    <div class="indicator-item">
-      <span class="indicator-label">DIAS RESTANTES:</span>
-      <span class="indicator-value" id="diasRestantesValue">
-        ${figaroIndicators.diasHabilesMes - diasTrabajados}
-      </span>
-    </div>
-  `;
-
-  // Update DIF. SEMANAL FIGARO value in external data panel
-  const difSemanalFigaroValueElement = document.querySelector('.data-box:nth-child(2) .data-content p');
-  difSemanalFigaroValueElement.textContent = formatCurrency(diferenciaSemanal);
-
-  // ... rest of existing code ...
-  // Add event listeners for week selection and editable values
-  const weekSelector = document.getElementById('weekSelector');
-  weekSelector.addEventListener('change', (e) => {
-    figaroIndicators.selectedWeek = parseInt(e.target.value);
-    saveToLocalStorage();
-    updateFigaroIndicatorsPanel();
-  });
-
-  // Add event listeners for editable values (diasHabilesMes and metaMes)
-  const diasHabilesMesValue = document.getElementById('diasHabilesMesValue');
-  const metaMesValue = document.getElementById('metaMesValue');
-
-  diasHabilesMesValue.addEventListener('dblclick', () => {
-    makeIndicatorEditable(diasHabilesMesValue, 'diasHabilesMes', 'number');
-  });
-
-  metaMesValue.addEventListener('dblclick', () => {
-    makeIndicatorEditable(metaMesValue, 'metaMes', 'money');
-  });
-
-  updateTotalBalance(); // Add this line to update total balance
-  updateAccountsList(); // Add this line to update accounts list
-}
-
-function makeIndicatorEditable(element, fieldName, type) {
-  const currentValue = type === 'money' ? 
-    (figaroIndicators[fieldName] || 0) : 
-    (figaroIndicators[fieldName] || 'Click para editar');
-
-  const input = document.createElement('input');
-  input.type = 'number';
-  input.min = type === 'number' ? '1' : '0';
-  input.max = type === 'number' ? '31' : '';
-  input.step = type === 'money' ? '1000' : '1';
-  input.value = currentValue;
-  input.className = 'edit-indicator-value';
-  
-  element.replaceWith(input);
-  input.focus();
-  input.select();
-
-  function saveEdit() {
-    const newValue = type === 'money' ? 
-      parseFloat(input.value) : 
-      parseInt(input.value);
-
-    if (!isNaN(newValue) && newValue >= 0 && (type !== 'number' || newValue <= 31)) {
-      figaroIndicators[fieldName] = newValue;
-      saveToLocalStorage();
-    }
-    
-    const span = document.createElement('span');
-    span.className = 'indicator-value editable';
-    span.id = element.id;
-    span.textContent = type === 'money' ? 
-      formatCurrency(figaroIndicators[fieldName] || 0) : 
-      (figaroIndicators[fieldName] || 'Click para editar');
-    
-    safeReplaceWith(input, span);
-    
-    span.addEventListener('dblclick', (e) => {
-      makeIndicatorEditable(e.target, fieldName, type);
-    });
-
-    updateFigaroIndicatorsPanel();
+    const td = document.createElement('td');
+    td.colSpan = activityMode ? 9 : 14;
+    td.style.padding = '20px';
+    td.style.textAlign = 'center';
+    td.style.color = '#9aa0a6';
+    td.textContent = 'No hay registros';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
   }
 
-  input.addEventListener('blur', saveEdit);
-  input.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveEdit();
+  // Helper: iterate months between from..to inclusive, format YYYY-MM
+  function monthsBetween(from, to){
+    const res = [];
+    if(!from || !to) return res;
+    const [yf,mf] = from.split('-').map(Number);
+    const [yt,mt] = to.split('-').map(Number);
+    let y = yf, m = mf;
+    while(y < yt || (y === yt && m <= mt)){
+      res.push(`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`);
+      m++;
+      if(m > 12){ m = 1; y++; }
+      if(y > yt + 5) break; // safety cap
     }
-  });
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  loadFromLocalStorage();
-  updateFigaroIndicatorsPanel();
-});
-
-function saveToLocalStorage() {
-  localStorage.setItem('finanzasAccounts', JSON.stringify(accounts));
-  localStorage.setItem('finanzasTransactions', JSON.stringify(transactions));
-  localStorage.setItem('finanzasAccountsOrder', JSON.stringify(accountsOrder));
-  localStorage.setItem('finanzasTransactionsOrder', JSON.stringify(transactionsOrder));
-  localStorage.setItem('figaro_indicators', JSON.stringify(figaroIndicators));
-}
-
-function loadFromLocalStorage() {
-  const savedAccounts = localStorage.getItem('finanzasAccounts');
-  const savedTransactions = localStorage.getItem('finanzasTransactions');
-  const savedAccountsOrder = localStorage.getItem('finanzasAccountsOrder');
-  const savedTransactionsOrder = localStorage.getItem('finanzasTransactionsOrder');
-  const savedIndicators = localStorage.getItem('figaro_indicators');
-  
-  if (savedAccounts) accounts = JSON.parse(savedAccounts);
-  if (savedTransactions) transactions = JSON.parse(savedTransactions);
-  if (savedAccountsOrder) accountsOrder = JSON.parse(savedAccountsOrder);
-  if (savedTransactionsOrder) transactionsOrder = JSON.parse(savedTransactionsOrder);
-  if (savedIndicators) figaroIndicators = JSON.parse(savedIndicators);
-  
-  updateTotalBalance();
-  updateAccountsList();
-  updateTransactionsList();
-  updateAccountSelectors();
-  
-  updateBalanceIndicators();
-  setInterval(updateBalanceIndicators, 60000);
-  
-  const today = new Date();
-  today.setMinutes(today.getMinutes() + today.getTimezoneOffset());
-  document.getElementById('date').valueAsDate = today;
-  
-  updateBalanceIndicators();
-  setInterval(updateBalanceIndicators, 60000);
-  updateFigaroIndicatorsPanel(); // Call updateFigaroIndicatorsPanel first
-  updateTotalBalance();       // Then call updateTotalBalance to use the updated indicator value
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  const timeOptions = { 
-    timeZone: 'America/Punta_Arenas',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  };
-
-  // Set the initial transaction date based on Punta Arenas timezone
-  const today = new Date();
-  const puntaArenasDate = today.toLocaleDateString('es-CL', timeOptions);
-  const [day, month, year] = puntaArenasDate.split('-');
-  const formattedDate = `${year}-${month}-${day}`;
-  document.getElementById('date').value = formattedDate;
-
-  const updateFormDate = () => {
-    const currentDate = new Date();
-    const puntaArenasFormattedDate = currentDate.toLocaleDateString('es-CL', timeOptions);
-    const [d, m, y] = puntaArenasFormattedDate.split('-');
-    document.getElementById('date').value = `${y}-${m}-${d}`;
-  };
-
-  // Update the form date whenever the balance indicators update
-  setInterval(updateFormDate, 60000); // Update every minute along with other indicators
-
-  // ...rest of the event listeners and initializations
-});
-
-function showTCRProjection() {
-  const modal = document.getElementById('tcrProjectionModal');
-  const monthsHeader = modal.querySelector('.tcr-months-header');
-  const content = modal.querySelector('.tcr-content');
-  
-  // Clear previous content
-  monthsHeader.innerHTML = '';
-  content.innerHTML = '';
-
-  // Get locked TCR transactions respecting the order
-  const tcrTransactions = transactions
-    .sort((a, b) => {
-      const indexA = transactionsOrder.indexOf(a.id);
-      const indexB = transactionsOrder.indexOf(b.id);
-      return indexA - indexB;
-    })
-    .filter(t => {
-      const account = accounts[t.account];
-      return t.locked && 
-             account && 
-             account.treatment === 'pasivos' && 
-             t.account.toLowerCase().startsWith('tcr');
-    });
-
-  // Group transactions by account
-  const accountGroups = {};
-  tcrTransactions.forEach(t => {
-    if (!accountGroups[t.account]) {
-      accountGroups[t.account] = [];
-    }
-    accountGroups[t.account].push(t);
-  });
-
-  // Create month headers and calculate monthly totals
-  const monthlyTotals = new Array(12).fill(0);
-  
-  // Add month headers
-  for (let i = 0; i < 12; i++) {
-    const monthCell = document.createElement('div');
-    monthCell.className = 'tcr-month-cell';
-    monthCell.innerHTML = `
-      Mes ${i + 1}
-      <span class="tcr-month-total">${formatCurrency(0)}</span>
-    `;
-    monthsHeader.appendChild(monthCell);
+    return res;
   }
 
-  // Create content for each account
-  Object.entries(accountGroups).forEach(([account, transactions]) => {
-    const accountGroup = document.createElement('div');
-    accountGroup.className = 'tcr-account-group';
-    
-    const accountHeader = document.createElement('div');
-    accountHeader.className = 'tcr-account-header';
-    accountHeader.textContent = accounts[account].displayName;
-    accountGroup.appendChild(accountHeader);
+  list.forEach((p) => {
+    // if there is an active range AND a search query present, expand each person into multiple rows (one per month)
+    if(activityMode && activityRangeActive && searchInput.value.trim()){
+      // determine months array from activityRangeFrom/to (fallback to lastMonth or current month if missing)
+      const from = activityRangeFrom || p.activities && p.activities._lastMonth || new Date().toISOString().slice(0,7);
+      const to = activityRangeTo || p.activities && p.activities._lastMonth || new Date().toISOString().slice(0,7);
+      const months = monthsBetween(from, to);
+      months.forEach(monthKey => {
+        const tr = document.createElement('tr');
+        tr.dataset.id = p.id;
+        let act = (p.activities && p.activities[monthKey]) ? p.activities[monthKey] : { aux:false, hours:'', studies:'', comments:'' };
 
-    transactions.forEach(t => {
-      const row = document.createElement('div');
-      row.className = 'tcr-transaction-row';
-      
-      // Add description cell
-      const descCell = document.createElement('div');
-      descCell.className = 'tcr-transaction-cell';
-      descCell.textContent = t.description;
-      row.appendChild(descCell);
-
-      // Calculate monthly payments
-      const amount = t.type === 'gasto' ? t.amount : -t.amount;
-      
-      // Changed logic here - if no totalInstallments defined or equals 1, repeat for all months
-      const isFixedPayment = !t.totalInstallments || t.totalInstallments === 1;
-      const remainingInstallments = !isFixedPayment ? 
-        (t.totalInstallments - t.currentInstallment + 1) : 
-        12; // Fixed payments show for all 12 months
-      
-      for (let i = 0; i < 12; i++) {
-        const cell = document.createElement('div');
-        cell.className = 'tcr-amount-cell';
-        
-        if (isFixedPayment) {
-          // Fixed monthly payment - show for all months
-          cell.textContent = formatCurrency(amount);
-          monthlyTotals[i] += amount;
-        } else {
-          // Installment payment - only show for remaining months
-          if (i < remainingInstallments) {
-            cell.textContent = formatCurrency(amount);
-            monthlyTotals[i] += amount;
-          } else {
-            cell.className += ' tcr-empty-cell';
-            cell.textContent = '-';
+        // Determine if there is a "Fin Precursorado Regular" recorded for this person and its month.
+        // If such a finMonth exists, months earlier than finMonth must not be auto-modified.
+        // Determine earliest months marked as 'Fin Precursorado Regular' or 'Inicio Precursorado Regular'
+        let finMonth = '';
+        let startMonth = '';
+        if (p.activities) {
+          for (const k of Object.keys(p.activities)) {
+            if (k === '_lastMonth') continue;
+            const candidate = p.activities[k];
+            const txt = String(candidate && candidate.comments || '').trim();
+            if (txt === 'Fin Precursorado Regular') {
+              if (!finMonth || k < finMonth) finMonth = k;
+            }
+            if (txt === 'Inicio Precursorado Regular') {
+              if (!startMonth || k < startMonth) startMonth = k;
+            }
           }
         }
-        
-        row.appendChild(cell);
+
+        // Ensure Aux. Mes is active ONLY when hours > 1 for non-Precursor Regular;
+        // if hours is 1 or empty, force aux to false and persist.
+        // IMPORTANT: if this month is earlier than finMonth OR earlier than startMonth, do not auto-modify aux.
+        const isBeforeFin = ((startMonth && monthKey < startMonth) || (finMonth && monthKey < finMonth));
+        if (!isBeforeFin) {
+          if (String(p.designation || '').trim() !== 'Precursor Regular') {
+            const hnum = act.hours === '' ? NaN : Number(act.hours);
+            if (!isNaN(hnum) && hnum > 1) {
+              act.aux = true;
+            } else {
+              // hours === 1 or empty (or non-numeric) => ensure aux is not active
+              act.aux = false;
+            }
+          } else {
+            // Precursor Regular: Aux. Mes must always be false (never auto-activate or preserve a checked state)
+            act.aux = false;
+          }
+        }
+        if (!p.activities) p.activities = {};
+        p.activities[monthKey] = act;
+        save();
+
+        tr.innerHTML = `
+          <td class="cong-cell">${escapeHtml(p.congName || '')}</td>
+          <td><input type="month" class="act-month" value="${escapeHtml(monthKey)}" style="width:100%"/></td>
+          <td>${escapeHtml(p.group || '')}</td>
+          <td>${escapeHtml(p.privilege || '')}</td>
+          <td>${escapeHtml(p.designation || '')}</td>
+          <td style="text-align:center"><input type="checkbox" class="act-aux" ${act.aux ? 'checked': ''} /></td>
+          <td><input type="number" inputmode="numeric" step="1" min="0" class="act-hours num-input" value="${escapeHtml(act.hours || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
+          <td><input type="number" inputmode="numeric" step="1" min="0" class="act-studies num-input" value="${escapeHtml(act.studies || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
+          <td>
+            <div class="act-comments" data-placeholder="Comentarios">
+              <div contenteditable="true" class="act-comments-input" data-placeholder="Comentarios">${escapeHtml((act.comments || '').slice(0,27))}</div>
+              <button type="button" class="comment-info" title="Información">i</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } else {
+      const tr = document.createElement('tr');
+      tr.dataset.id = p.id; // attach id to row for easy lookup
+
+      if(activityMode){
+        // ensure an activities container exists on person
+        if(!p.activities) p.activities = {}; // keyed by month (YYYY-MM)
+        // use last selected month for this person if any, else current month
+        const monthKey = p.activities._lastMonth || new Date().toISOString().slice(0,7);
+        let act = p.activities[monthKey] || { aux:false, hours:'', studies:'', comments:'' };
+
+        // Ensure Aux. Mes is active ONLY when hours > 1 for non-Precursor Regular;
+        // if hours is 1 or empty, force aux to false and persist.
+        if (String(p.designation || '').trim() !== 'Precursor Regular') {
+          const hnum = act.hours === '' ? NaN : Number(act.hours);
+          if (!isNaN(hnum) && hnum > 1) {
+            act.aux = true;
+          } else {
+            act.aux = false;
+          }
+          if (!p.activities) p.activities = {};
+          p.activities[monthKey] = act;
+          save();
+        }
+
+        tr.innerHTML = `
+          <td class="cong-cell">${escapeHtml(p.congName || '')}</td>
+          <td><input type="month" class="act-month" value="${escapeHtml(monthKey)}" style="width:100%"/></td>
+          <td>${escapeHtml(p.group || '')}</td>
+          <td>${escapeHtml(p.privilege || '')}</td>
+          <td>${escapeHtml(p.designation || '')}</td>
+          <td style="text-align:center"><input type="checkbox" class="act-aux" ${act.aux ? 'checked': ''} /></td>
+          <td><input type="number" inputmode="numeric" step="1" min="0" class="act-hours num-input" value="${escapeHtml(act.hours || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
+          <td><input type="number" inputmode="numeric" step="1" min="0" class="act-studies num-input" value="${escapeHtml(act.studies || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
+          <td>
+            <div class="act-comments" data-placeholder="Comentarios">
+              <div contenteditable="true" class="act-comments-input" data-placeholder="Comentarios">${escapeHtml((act.comments || '').slice(0,27))}</div>
+              <button type="button" class="comment-info" title="Información">i</button>
+            </div>
+          </td>
+        `;
+      } else {
+        const bAge = calcAge(p.birthDate);
+        const baAge = calcAge(p.baptismDate);
+        const birthHtml = escapeHtml(p.birthDate || '') + (bAge !== null ? ` <strong>(${bAge} años)</strong>` : '');
+
+        // determine if baptism age should be highlighted red:
+        // show in red if months since baptism is less than 18 months (1 año 6 meses)
+        let baptismAgeHtml = '';
+        if(baAge !== null){
+          const months = monthsSince(p.baptismDate);
+          const ageSpan = `<strong${(months !== null && months < 18) ? ' class="age-recent"' : ''}>(${baAge} años)</strong>`;
+          baptismAgeHtml = ` ${ageSpan}`;
+        }
+        const baptismHtml = escapeHtml(p.baptismDate || '') + baptismAgeHtml;
+
+        tr.innerHTML = `
+          <td class="cong-cell">${escapeHtml(p.congName || '')}</td>
+          <td>${escapeHtml(p.firstName)}</td>
+          <td>${escapeHtml(p.lastNameP)}</td>
+          <td>${escapeHtml(p.lastNameM || '')}</td>
+          <td>${escapeHtml(p.group || '')}</td>
+          <td>${escapeHtml(p.privilege || '')}</td>
+          <td>${escapeHtml(p.designation || '')}</td>
+          <td>${escapeHtml(p.sex || '')}</td>
+          <td>${escapeHtml(p.esp || '')}</td>
+          <td>${birthHtml}</td>
+          <td>${baptismHtml}</td>
+          <td>${escapeHtml(p.address || '')}</td>
+          <td>${escapeHtml(p.phone || '')}</td>
+          <td>${escapeHtml(p.emergencyContact || '')}</td>
+        `;
       }
 
-      accountGroup.appendChild(row);
-    });
-
-    content.appendChild(accountGroup);
-  });
-
-  // Update month totals
-  const monthCells = monthsHeader.querySelectorAll('.tcr-month-cell');
-  monthCells.forEach((cell, i) => {
-    cell.querySelector('.tcr-month-total').textContent = formatCurrency(monthlyTotals[i]);
-  });
-
-  modal.style.display = 'block';
-
-  // Add close button handler
-  const closeBtn = modal.querySelector('.tcr-close');
-  closeBtn.onclick = () => modal.style.display = 'none';
-
-  // Close when clicking outside
-  window.onclick = (e) => {
-    if (e.target === modal) {
-      modal.style.display = 'none';
+      tbody.appendChild(tr);
     }
-  };
+  });
+
+  // after rows inserted, attach single correct listeners for activity controls if in activityMode
+  if(activityMode){
+    tbody.querySelectorAll('tr').forEach(tr => {
+      const id = tr.dataset.id;
+      const p = people.find(x => x.id === id);
+      if(!p) return;
+
+      const monthInput = tr.querySelector('.act-month');
+      const aux = tr.querySelector('.act-aux');
+      const hours = tr.querySelector('.act-hours'); // input[type=number]
+      const studies = tr.querySelector('.act-studies'); // input[type=number]
+      const comments = tr.querySelector('.act-comments-input'); // contenteditable inner div
+
+      // ensure activities container
+      if(!p.activities) p.activities = {};
+      // initialize lastMonth if absent
+      if(!p.activities._lastMonth) p.activities._lastMonth = monthInput.value;
+
+      function saveActivityFor(month){
+        if(!p.activities) p.activities = {};
+        p.activities._lastMonth = month;
+        const cur = p.activities[month] || { aux:false, hours:'', studies:'', comments:'' };
+        // read values live from DOM (inputs use .value)
+        cur.hours = (hours && typeof hours.value !== 'undefined') ? String(hours.value).trim() : '';
+        cur.studies = (studies && typeof studies.value !== 'undefined') ? String(studies.value).trim() : '';
+        cur.comments = (getCommentText(comments) || '').slice(0,27);
+
+        // Determine earliest months marked as 'Fin Precursorado Regular' or 'Inicio Precursorado Regular'
+        let finMonthSave = '';
+        let startMonthSave = '';
+        if (p.activities) {
+          for (const k of Object.keys(p.activities)) {
+            if (k === '_lastMonth') continue;
+            const candidate = p.activities[k];
+            const txt = String(candidate && candidate.comments || '').trim();
+            if (txt === 'Fin Precursorado Regular') {
+              if (!finMonthSave || k < finMonthSave) finMonthSave = k;
+            }
+            if (txt === 'Inicio Precursorado Regular') {
+              if (!startMonthSave || k < startMonthSave) startMonthSave = k;
+            }
+          }
+        }
+        const isBeforeFinSave = ((startMonthSave && (month === '' ? false : (month < startMonthSave))) || (finMonthSave && (month === '' ? false : (month < finMonthSave))));
+
+        // For non-Precursor Regular, Aux. Mes must be active ONLY when hours > 1.
+        // If hours === 1 or empty, force aux false and persist; for Precursor Regular always disable Aux. Mes.
+        // IMPORTANT: if saving for a month earlier than finMonth, do not auto-modify cur.aux.
+        if (!isBeforeFinSave) {
+          if (String(p.designation || '').trim() !== 'Precursor Regular') {
+            const hnum = cur.hours === '' ? NaN : Number(cur.hours);
+            if (!isNaN(hnum) && hnum > 1) {
+              cur.aux = true;
+            } else {
+              // when hours is 1 or empty (or non-numeric), ensure aux is not active
+              cur.aux = false;
+            }
+          } else {
+            // Precursor Regular: Aux. Mes must always be false (do not allow checked)
+            cur.aux = false;
+            // keep the checkbox visual state in sync when possible
+            if(aux) aux.checked = false;
+          }
+        }
+
+        p.activities[month] = cur;
+        save();
+      }
+
+      monthInput.addEventListener('change', (e) => {
+        // Only persist the previous month's values when the change was initiated by the user.
+        // Programmatic changes (dispatchEvent from "Seleccionar mes") are not user intent and should only navigate.
+        if (e.isTrusted) {
+          const prevMonth = p.activities._lastMonth || e.target.value;
+          saveActivityFor(prevMonth);
+        }
+        // switch view to new month value and load stored values (navigation only)
+        const newM = e.target.value;
+        p.activities._lastMonth = newM;
+        const act = p.activities[newM] || { aux:false, hours:'', studies:'', comments:'' };
+        aux.checked = !!act.aux;
+        if(hours) hours.value = act.hours || '';
+        if(studies) studies.value = act.studies || '';
+        if(comments) comments.textContent = act.comments || '';
+        // persist the selected month but avoid copying DOM values when navigation was programmatic
+        try { save(); } catch (err) {}
+      });
+
+      aux.addEventListener('change', () => {
+        saveActivityFor(monthInput.value);
+      });
+
+      // inputs: live save (debounced) on number inputs
+      [hours, studies].forEach(el => {
+        if(!el) return;
+        el.addEventListener('input', () => {
+          clearTimeout(el._t);
+          el._t = setTimeout(() => saveActivityFor(monthInput.value), 300);
+        });
+        el.addEventListener('change', () => saveActivityFor(monthInput.value));
+        el.addEventListener('blur', () => saveActivityFor(monthInput.value));
+      });
+
+      // comments contenteditable handling
+      if(comments){
+        comments.addEventListener('input', () => {
+          // enforce max length 27 in the editable comments box
+          try {
+            const txt = comments.textContent || '';
+            if (txt.length > 27) {
+              const trimmed = txt.slice(0,27);
+              comments.textContent = trimmed;
+              // move caret to end
+              const range = document.createRange();
+              range.selectNodeContents(comments);
+              range.collapse(false);
+              const sel = window.getSelection();
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          } catch (err) { /* ignore selection quirks */ }
+
+          clearTimeout(comments._t);
+          comments._t = setTimeout(() => saveActivityFor(monthInput.value), 400);
+        });
+        comments.addEventListener('blur', () => saveActivityFor(monthInput.value));
+      }
+    });
+  }
+
+  // reapply selection if a row id is stored (keep single-selection state across renders)
+  if(selectedId){
+    const selRow = tbody.querySelector(`tr[data-id="${selectedId}"]`);
+    if(selRow){
+      // clear any other selections then mark this one
+      tbody.querySelectorAll('tr.selected').forEach(r => r.classList.remove('selected'));
+      selRow.classList.add('selected');
+    } else {
+      // if previously selected id no longer present, clear stored selection
+      selectedId = null;
+    }
+  }
+
+  // Reinitialize header sorting and column resizers after changing table structure
+  // (safe to call repeatedly)
+  setTimeout(() => {
+    initHeaderSorting();
+    initResizableColumns();
+  }, 0);
 }
 
-document.getElementById('proyTCR').onclick = showTCRProjection;
+/* simple escape */
+function escapeHtml(s=''){
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;');
+}
 
-// Totales TCR modal logic
-(function(){
-  const totalesBtn = document.getElementById('totalesTCR');
-  const modal = document.getElementById('totalesTCRModal');
-  const closeBtn = modal?.querySelector('.totales-tcr-close');
-  const listContainer = document.getElementById('totalesTCRList');
+/* extract text content from a contenteditable comment box but exclude any button labels (like the info "i") */
+function getCommentText(el){
+  if(!el) return '';
+  try{
+    // if wrapper passed, select inner editable area
+    if(el.classList && el.classList.contains && el.classList.contains('act-comments')){
+      el = el.querySelector('.act-comments-input') || el;
+    }
+    // clone to avoid modifying live DOM, remove any buttons then return plain text
+    const c = el.cloneNode(true);
+    c.querySelectorAll('button').forEach(b => b.remove());
+    return (c.textContent || '').trim();
+  }catch(e){
+    return (el && el.textContent) ? String(el.textContent).trim() : '';
+  }
+}
 
-  function buildTotalesTCRList(){
-    if(!listContainer) return;
-    listContainer.innerHTML = '';
-    const entries = Object.entries(accounts)
-      .filter(([key, acc]) => acc.treatment === 'pasivos' && acc.type === 'credito');
+/* calculate whole years since a date string (YYYY-MM-DD). returns null if invalid */
+function calcAge(dateStr){
+  if(!dateStr) return null;
+  const d = new Date(dateStr);
+  if(isNaN(d)) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const m = today.getMonth() - d.getMonth();
+  if(m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
+  return age >= 0 ? age : null;
+}
 
-    if(entries.length === 0){
-      listContainer.innerHTML = '<div class="totales-empty">No se encontraron cuentas de tipo Tarjeta de Crédito en pasivos.</div>';
-      return;
+/* months since a date (returns integer months, or null if invalid) */
+function monthsSince(dateStr){
+  if(!dateStr) return null;
+  const d = new Date(dateStr);
+  if(isNaN(d)) return null;
+  const today = new Date();
+  let months = (today.getFullYear() - d.getFullYear()) * 12 + (today.getMonth() - d.getMonth());
+  // adjust for day-of-month
+  if(today.getDate() < d.getDate()) months--;
+  return months >= 0 ? months : null;
+}
+
+/* normalize various date string formats to YYYY-MM-DD or return '' if unparseable
+   Handles:
+     - ISO-ish inputs (YYYY-MM-DD, YYYY/MM/DD)
+     - DD/MM/YYYY or D/M/YYYY and DD-MM-YYYY
+     - MM/DD/YYYY (naive; tries to detect ambiguous cases)
+     - plain YYYYMMDD
+*/
+function normalizeDate(input){
+  if(!input) return '';
+  let s = String(input).trim();
+  if(!s) return '';
+
+  // already ISO-like YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+  if(isoMatch){
+    const y = isoMatch[1], m = String(isoMatch[2]).padStart(2,'0'), d = String(isoMatch[3]).padStart(2,'0');
+    const dt = new Date(`${y}-${m}-${d}`);
+    if(!isNaN(dt)) return `${y}-${m}-${d}`;
+  }
+
+  // plain YYYYMMDD
+  const ymdMatch = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if(ymdMatch){
+    const y = ymdMatch[1], m = ymdMatch[2], d = ymdMatch[3];
+    const dt = new Date(`${y}-${m}-${d}`);
+    if(!isNaN(dt)) return `${y}-${m}-${d}`;
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if(dmyMatch){
+    const d = String(dmyMatch[1]).padStart(2,'0'), m = String(dmyMatch[2]).padStart(2,'0'), y = dmyMatch[3];
+    const dt = new Date(`${y}-${m}-${d}`);
+    if(!isNaN(dt)) return `${y}-${m}-${d}`;
+  }
+
+  // MM/DD/YYYY (common in some CSVs)
+  const mdyMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if(mdyMatch){
+    const m = String(mdyMatch[1]).padStart(2,'0'), d = String(mdyMatch[2]).padStart(2,'0'), y = mdyMatch[3];
+    const dt1 = new Date(`${y}-${m}-${d}`);
+    if(!isNaN(dt1)) return `${y}-${m}-${d}`;
+  }
+
+  // As a last resort try Date parse (will handle some textual dates)
+  const parsed = new Date(s);
+  if(!isNaN(parsed)){
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth()+1).padStart(2,'0');
+    const d = String(parsed.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+
+  return '';
+}
+
+/* Events */
+addBtn.addEventListener('click', () => openModal('add'));
+closeModal.addEventListener('click', close);
+cancelBtn.addEventListener('click', close);
+modal.addEventListener('click', (e) => { if(e.target === modal) close(); });
+
+/* Update the contextual options bar depending on current mode */
+function updateOptionsBar(){
+  const bar = document.querySelector('.options-bar');
+  if(!bar) return;
+  bar.innerHTML = '';
+  if(activityMode){
+    // Activity: show a global month picker that changes the month for all rows
+    bar.classList.remove('has-registry-actions');
+
+    // create container elements
+    const wrap = document.createElement('div');
+    wrap.style.display = 'flex';
+    wrap.style.alignItems = 'center';
+    wrap.style.gap = '8px';
+    wrap.style.color = '#e6e9ee';
+
+    // determine initial value: prefer previously used month (if any person has _lastMonth), else current month
+    const any = people.find(p => p.activities && p.activities._lastMonth);
+    const init = any ? any.activities._lastMonth : new Date().toISOString().slice(0,7);
+
+    // Global month input (hidden visually until used) - reused by both "Mes general" and "Seleccionar mes"
+    const input = document.createElement('input');
+    input.type = 'month';
+    input.id = 'globalActivityMonth';
+    input.style.padding = '8px';
+    input.style.borderRadius = '8px';
+    input.style.border = '1px solid rgba(255,255,255,0.08)';
+    input.style.background = '#373a3f';
+    input.style.color = '#fff';
+    input.value = init;
+
+    // when changed, update every person's _lastMonth and update DOM rows to reflect the chosen month
+    input.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if(!val) return;
+      // set the selected month for every person (force the month even if already set)
+      people.forEach(p => {
+        if(!p.activities) p.activities = {};
+        p.activities._lastMonth = val;
+      });
+      save();
+      // update every visible row's month input and always dispatch change so per-row handlers reload data
+      tbody.querySelectorAll('tr').forEach(tr => {
+        const monthInput = tr.querySelector('.act-month');
+        if(!monthInput) return;
+        monthInput.value = val;
+        // dispatch change so per-row handlers update aux/hours/studies/comments from saved data
+        monthInput.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
+
+
+
+    // If there is a selected row, show an "Año Servicio" control (year with arrows).
+    // Otherwise show a "Seleccionar mes" button (per request).
+    const anySelected = !!document.querySelector('#tbody tr.selected');
+
+    // helper to compute service-year month range (Sept prev year -> Aug year)
+    function setServiceYearRange(year) {
+      if(!year || isNaN(Number(year))) return;
+      const y = Number(year);
+      activityRangeFrom = `${String(y-1).padStart(4,'0')}-09`;
+      activityRangeTo = `${String(y).padStart(4,'0')}-08`;
+      activityRangeActive = true;
+      // re-render to expand rows for the selected range if search is present
+      render(searchInput.value);
     }
 
-    const ul = document.createElement('div');
-    ul.className = 'totales-tcr-items';
-    entries.forEach(([key, acc]) => {
-      // Ensure there's a stored cupo total field
-      if (acc.tcrLimit === undefined || acc.tcrLimit === null) {
-        // default to 0 if not present
-        acc.tcrLimit = 0;
-      }
+    if(anySelected){
+      // build compact year selector with left/right arrows
+      const yearWrap = document.createElement('div');
+      yearWrap.style.display = 'inline-flex';
+      yearWrap.style.alignItems = 'center';
+      yearWrap.style.gap = '6px';
+      yearWrap.style.marginLeft = '8px';
 
-      // Compute Cupo Utilizado by summing all transactions for this account,
-      // counting for each transaction the number of remaining installments (including current).
-      const usedSum = transactions
-        .filter(t => t.account === key)
-        .reduce((sum, t) => {
-          const amt = Math.abs(Number(t.amount || 0));
-          // Determine remaining installments: if totalInstallments present and >1 use that, otherwise 1
-          const totalInst = Number(t.totalInstallments) || 1;
-          const currentInst = Number(t.currentInstallment) || 1;
-          const remaining = Math.max(1, totalInst - currentInst + 1);
-          return sum + (amt * remaining);
+      const label = document.createElement('div');
+      label.textContent = 'Año Servicio';
+      label.style.fontWeight = '700';
+      label.style.color = 'var(--muted)';
+      label.style.fontSize = '13px';
+      label.style.display = 'none'; // visually hide label to keep compact, accessible via tooltip
+      yearWrap.appendChild(label);
+
+      // determine initial service year: prefer existing activityRangeTo or current defaultServiceYear
+      const now = new Date();
+      const defaultServiceYear = (now.getMonth() >= 8) ? (now.getFullYear() + 1) : now.getFullYear();
+      let curYear = (function(){
+        if(activityRangeFrom && activityRangeTo){
+          // parse activityRangeTo year if it matches service-year end (YYYY-08)
+          try{
+            const part = (activityRangeTo || '').split('-')[0];
+            if(part && /^\d{4}$/.test(part)) return Number(part);
+          }catch(e){}
+        }
+        // fallback to previously selected month on any person, else default
+        const anyp = people.find(p => p.activities && p.activities._lastMonth);
+        if(anyp && anyp.activities && anyp.activities._lastMonth){
+          const y = Number(anyp.activities._lastMonth.split('-')[0]);
+          if(!isNaN(y)) return y + (new Date().getMonth() >= 8 ? 1 : 0);
+        }
+        return defaultServiceYear;
+      })();
+
+      // left arrow
+      const left = document.createElement('button');
+      left.className = 'secondary';
+      left.title = 'Año anterior';
+      left.textContent = '◀';
+      left.style.padding = '6px 8px';
+      left.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        curYear = curYear - 1;
+        yearDisplay.textContent = String(curYear);
+        setServiceYearRange(curYear);
+      });
+      yearWrap.appendChild(left);
+
+      // year display
+      const yearDisplay = document.createElement('div');
+      yearDisplay.style.minWidth = '64px';
+      yearDisplay.style.textAlign = 'center';
+      yearDisplay.style.fontWeight = '700';
+      yearDisplay.style.background = 'transparent';
+      yearDisplay.style.padding = '6px 8px';
+      yearDisplay.style.borderRadius = '8px';
+      yearDisplay.style.border = '1px solid rgba(255,255,255,0.04)';
+      yearDisplay.style.color = 'var(--text)';
+      yearDisplay.textContent = String(curYear);
+      yearDisplay.title = 'Año de servicio seleccionado';
+      yearWrap.appendChild(yearDisplay);
+
+      // right arrow
+      const right = document.createElement('button');
+      right.className = 'secondary';
+      right.title = 'Año siguiente';
+      right.textContent = '▶';
+      right.style.padding = '6px 8px';
+      right.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        curYear = curYear + 1;
+        yearDisplay.textContent = String(curYear);
+        setServiceYearRange(curYear);
+      });
+      yearWrap.appendChild(right);
+
+      // clicking year display opens small chooser (month-tab style) to type/select year quickly
+      yearDisplay.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        // prevent multiple tabs
+        if(document.getElementById('serviceYearTab')) return;
+        const tab = document.createElement('div');
+        tab.id = 'serviceYearTab';
+        tab.className = 'month-tab';
+        tab.style.minWidth = '180px';
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = '1900';
+        input.max = '2099';
+        input.value = String(curYear);
+        input.style.width = '100%';
+        input.addEventListener('keydown', (ke) => {
+          if(ke.key === 'Enter'){
+            ke.preventDefault();
+            const v = parseInt(input.value,10) || curYear;
+            curYear = v;
+            yearDisplay.textContent = String(curYear);
+            setServiceYearRange(curYear);
+            tab.remove();
+          } else if(ke.key === 'Escape'){
+            ke.preventDefault();
+            tab.remove();
+          }
+        });
+        input.addEventListener('change', () => {
+          const v = parseInt(input.value,10) || curYear;
+          curYear = v;
+          yearDisplay.textContent = String(curYear);
+          setServiceYearRange(curYear);
+          tab.remove();
+        });
+        tab.appendChild(input);
+        document.body.appendChild(tab);
+        const rect = yearDisplay.getBoundingClientRect();
+        tab.style.position = 'absolute';
+        tab.style.left = (rect.left + window.scrollX) + 'px';
+        tab.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+        tab.style.zIndex = 9999;
+        input.focus();
+
+        setTimeout(() => {
+          const onDocClick = (ev) => {
+            if(!tab) return;
+            if(!tab.contains(ev.target) && ev.target !== yearDisplay){
+              tab.remove();
+              document.removeEventListener('click', onDocClick);
+            }
+          };
+          document.addEventListener('click', onDocClick);
+        }, 0);
+      });
+
+      wrap.appendChild(yearWrap);
+    } else {
+      const selectMonthBtn = document.createElement('button');
+      selectMonthBtn.className = 'secondary';
+      selectMonthBtn.textContent = 'Seleccionar mes';
+      selectMonthBtn.title = 'Seleccionar mes para todo el registro';
+      selectMonthBtn.style.marginLeft = '8px';
+      selectMonthBtn.style.position = 'relative';
+
+      // when clicked, toggle a small "tab" panel under the button with a month picker + apply
+      let tab;
+      selectMonthBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if(tab){
+          tab.remove();
+          tab = null;
+          return;
+        }
+        // build tab
+        tab = document.createElement('div');
+        tab.className = 'month-tab';
+        const mInput = document.createElement('input');
+        mInput.type = 'month';
+        mInput.value = input.value || init;
+        mInput.className = 'month-tab-input';
+
+        // apply immediately when the month is changed
+        mInput.addEventListener('change', () => {
+          if(!mInput.value) return;
+          input.value = mInput.value;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          tab.remove();
+          tab = null;
+        });
+
+        // assemble tab (no separate "Aplicar" button)
+        tab.appendChild(mInput);
+
+        // position tab under the button using absolute page coords
+        document.body.appendChild(tab);
+        const rect = selectMonthBtn.getBoundingClientRect();
+        tab.style.position = 'absolute';
+        tab.style.left = (rect.left + window.scrollX) + 'px';
+        tab.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+        tab.style.zIndex = 9999;
+
+        // close tab if clicking elsewhere
+        setTimeout(() => {
+          const onDocClick = (ev) => {
+            if(!tab) return;
+            if(!tab.contains(ev.target) && ev.target !== selectMonthBtn){
+              tab.remove();
+              tab = null;
+              document.removeEventListener('click', onDocClick);
+            }
+          };
+          document.addEventListener('click', onDocClick);
         }, 0);
 
-      const limitNum = Number(acc.tcrLimit || 0);
-      const disponible = limitNum - usedSum;
+        mInput.focus();
+      });
 
-      const row = document.createElement('div');
-      row.className = 'totales-tcr-item';
+      wrap.appendChild(selectMonthBtn);
 
-      row.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:6px;width:60%;">
-          <div class="totales-tcr-name" title="${key}">${acc.displayName || key}</div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <label style="font-size:0.85em;color:#ccc;min-width:88px;">Cupo Total:</label>
-            <input class="tcr-cupo-input" data-account="${key}" value="${formatCurrency(limitNum)}" style="width:120px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:white;text-align:right;">
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;width:40%;">
-          <div style="font-size:1em;color:#fff;">Cupo Disponible: <strong class="tcr-disponible" data-account="${key}" data-raw="${disponible}" style="margin-left:6px;">${formatCurrency(disponible)}</strong></div>
-          <div style="font-size:0.95em;color:#fff;">Cupo Utilizado: <strong class="tcr-utilizado" data-account="${key}" style="margin-left:6px;">${formatCurrency(usedSum)}</strong></div>
-        </div>
-      `;
+      // New "Reporte JW" button placed next to "Seleccionar mes"
+      const reportBtn = document.createElement('button');
+      reportBtn.className = 'secondary';
+      reportBtn.textContent = 'Reporte JW';
+      reportBtn.title = 'Generar Reporte JW';
+      reportBtn.style.marginLeft = '8px';
+      reportBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
 
-      ul.appendChild(row);
+        // remove existing modal if any
+        const existing = document.getElementById('jwReportModal');
+        if (existing) existing.remove();
 
-      // apply positive/negative class based on disponible value
-      try {
-        const dispoEl = row.querySelector(`.tcr-disponible[data-account="${key}"]`);
-        if (dispoEl) {
-          if (Number(disponible) < 0) {
-            dispoEl.classList.add('negative');
-            dispoEl.classList.remove('positive');
-          } else {
-            dispoEl.classList.add('positive');
-            dispoEl.classList.remove('negative');
-          }
-          // ensure displayed formatted value is consistent
-          dispoEl.textContent = formatCurrency(disponible);
+        // build modal container (simple floating panel)
+        const modal = document.createElement('div');
+        modal.id = 'jwReportModal';
+        modal.style.position = 'fixed';
+        modal.style.left = '0';
+        modal.style.top = '0';
+        modal.style.right = '0';
+        modal.style.bottom = '0';
+        modal.style.display = 'flex';
+        modal.style.alignItems = 'center';
+        modal.style.justifyContent = 'center';
+        modal.style.background = 'rgba(15,23,42,0.3)';
+        modal.style.zIndex = '150';
+        modal.style.padding = '18px';
+
+        const card = document.createElement('div');
+        card.style.width = 'min(780px, 96vw)';
+        card.style.background = 'var(--card)';
+        card.style.border = '1px solid var(--subtle)';
+        card.style.borderRadius = '10px';
+        card.style.boxShadow = '0 18px 48px rgba(16,24,40,0.18)';
+        card.style.overflow = 'hidden';
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+
+        // header
+        const hdr = document.createElement('div');
+        hdr.style.display = 'flex';
+        hdr.style.alignItems = 'center';
+        hdr.style.justifyContent = 'space-between';
+        hdr.style.padding = '12px 14px';
+        hdr.style.borderBottom = '1px solid var(--subtle)';
+
+        const title = document.createElement('div');
+        title.textContent = 'REPORTE JW';
+        title.style.fontWeight = '700';
+        title.style.fontSize = '16px';
+
+        // month-year selector (top-right)
+        const rightWrap = document.createElement('div');
+        rightWrap.style.display = 'flex';
+        rightWrap.style.alignItems = 'center';
+        rightWrap.style.gap = '8px';
+
+        const label = document.createElement('div');
+        label.textContent = 'Mes/Año:';
+        label.style.fontSize = '13px';
+        label.style.color = 'var(--muted)';
+        label.style.fontWeight = '700';
+
+        const monthInput = document.createElement('input');
+        monthInput.type = 'month';
+        // restore last selected month for the JW report if available, otherwise default to current month
+        try{
+          const saved = localStorage.getItem('jw_report_last_month_v1');
+          monthInput.value = saved && /^\d{4}-\d{2}$/.test(saved) ? saved : new Date().toISOString().slice(0,7);
+        }catch(err){
+          monthInput.value = new Date().toISOString().slice(0,7);
         }
-      } catch (err) {
-        // ignore any DOM timing issues
+        monthInput.style.padding = '6px 8px';
+        monthInput.style.borderRadius = '8px';
+        monthInput.style.border = '1px solid var(--subtle)';
+        monthInput.style.background = '#fff';
+        monthInput.style.color = 'var(--text)';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'icon-btn';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.title = 'Cerrar reporte';
+        closeBtn.style.fontSize = '20px';
+        closeBtn.style.marginLeft = '6px';
+
+        rightWrap.appendChild(label);
+        rightWrap.appendChild(monthInput);
+        rightWrap.appendChild(closeBtn);
+
+        hdr.appendChild(title);
+        hdr.appendChild(rightWrap);
+
+        // body with the Total Activos display and new "Publicadores" indicator
+        const body = document.createElement('div');
+        body.style.padding = '14px';
+        body.style.display = 'flex';
+        body.style.flexDirection = 'column';
+        body.style.gap = '12px';
+        body.style.minHeight = '120px';
+
+        // Total Activos block
+        const infoRow = document.createElement('div');
+        infoRow.style.display = 'flex';
+        infoRow.style.alignItems = 'center';
+        infoRow.style.justifyContent = 'space-between';
+        infoRow.style.gap = '12px';
+
+        const desc = document.createElement('div');
+        desc.innerHTML = '<div style="font-weight:700;color:var(--muted);font-size:13px;">Total Activos</div><div style="color:var(--muted);font-size:12px;">(personas con al menos un "1" o más en Horas en cualquiera de los últimos 6 meses)</div>';
+        const valueBox = document.createElement('div');
+        valueBox.style.minWidth = '88px';
+        valueBox.style.textAlign = 'center';
+        valueBox.style.fontWeight = '700';
+        valueBox.style.fontSize = '22px';
+        valueBox.style.padding = '10px 14px';
+        valueBox.style.borderRadius = '10px';
+        valueBox.style.background = 'linear-gradient(180deg, rgba(11,102,255,0.06), rgba(11,102,255,0.03))';
+        valueBox.style.border = '1px solid rgba(11,102,255,0.06)';
+        valueBox.textContent = '0';
+
+        infoRow.appendChild(desc);
+        infoRow.appendChild(valueBox);
+        body.appendChild(infoRow);
+
+        // Promedio de asistencia a las reuniones del fin de semana (nuevo indicador, inicial 0)
+        const promRow = document.createElement('div');
+        promRow.style.display = 'flex';
+        promRow.style.alignItems = 'center';
+        promRow.style.justifyContent = 'space-between';
+        promRow.style.gap = '12px';
+        promRow.style.marginTop = '6px';
+
+        const promDesc = document.createElement('div');
+        promDesc.innerHTML = '<div style="font-weight:700;color:var(--muted);font-size:13px;">Promedio de asistencia a las reuniones del fin de semana</div>';
+
+        const promBox = document.createElement('div');
+        promBox.style.display = 'flex';
+        promBox.style.gap = '10px';
+        promBox.style.alignItems = 'center';
+
+        // Styled like Total Activos value box but smaller
+        const promValueBox = document.createElement('div');
+        promValueBox.style.minWidth = '88px';
+        promValueBox.style.textAlign = 'center';
+        promValueBox.style.fontWeight = '700';
+        promValueBox.style.fontSize = '22px';
+        promValueBox.style.padding = '10px 14px';
+        promValueBox.style.borderRadius = '10px';
+        promValueBox.style.background = 'linear-gradient(180deg, rgba(11,102,255,0.06), rgba(11,102,255,0.03))';
+        promValueBox.style.border = '1px solid rgba(11,102,255,0.06)';
+        promValueBox.textContent = '0';
+
+        promBox.appendChild(promValueBox);
+        promRow.appendChild(promDesc);
+        promRow.appendChild(promBox);
+        body.appendChild(promRow);
+
+        // Publicadores block (new)
+        const pubRow = document.createElement('div');
+        pubRow.style.display = 'flex';
+        pubRow.style.alignItems = 'center';
+        pubRow.style.justifyContent = 'space-between';
+        pubRow.style.gap = '12px';
+        pubRow.style.marginTop = '6px';
+
+        const pubDesc = document.createElement('div');
+        pubDesc.innerHTML = '<div style="font-weight:700;color:var(--muted);font-size:13px;">Publicadores</div><div style="color:var(--muted);font-size:12px;">(Personas con horas ≥1 en el mes seleccionado que NO son Precursor Regular y NO tienen Aux. Mes activado)</div>';
+
+        // subindicator container (two small stat boxes)
+        const pubStats = document.createElement('div');
+        pubStats.style.display = 'flex';
+        pubStats.style.gap = '10px';
+        pubStats.style.alignItems = 'center';
+
+        const pubCountBox = document.createElement('div');
+        pubCountBox.style.background = '#fff';
+        pubCountBox.style.border = '1px solid var(--subtle)';
+        pubCountBox.style.borderRadius = '8px';
+        pubCountBox.style.padding = '8px 10px';
+        pubCountBox.style.minWidth = '160px';
+        pubCountBox.style.textAlign = 'center';
+        pubCountBox.innerHTML = '<div style="font-weight:700; color:var(--muted); font-size:12px;">Cantidad de informes</div><div style="font-weight:700; font-size:15px;">0</div>';
+
+        const pubCoursesBox = document.createElement('div');
+        pubCoursesBox.style.background = '#fff';
+        pubCoursesBox.style.border = '1px solid var(--subtle)';
+        pubCoursesBox.style.borderRadius = '8px';
+        pubCoursesBox.style.padding = '8px 10px';
+        pubCoursesBox.style.minWidth = '160px';
+        pubCoursesBox.style.textAlign = 'center';
+        pubCoursesBox.innerHTML = '<div style="font-weight:700; color:var(--muted);font-size:12px;">Cursos Bíblicos</div><div style="font-weight:700; font-size:15px;">0</div>';
+
+        pubStats.appendChild(pubCountBox);
+        pubStats.appendChild(pubCoursesBox);
+
+        pubRow.appendChild(pubDesc);
+        pubRow.appendChild(pubStats);
+        body.appendChild(pubRow);
+
+        // Precursores Auxiliares block (new per request)
+        const auxRow = document.createElement('div');
+        auxRow.style.display = 'flex';
+        auxRow.style.alignItems = 'center';
+        auxRow.style.justifyContent = 'space-between';
+        auxRow.style.gap = '12px';
+        auxRow.style.marginTop = '6px';
+
+        const auxDesc = document.createElement('div');
+        auxDesc.innerHTML = '<div style="font-weight:700;color:var(--muted);font-size:13px;">Precursores Auxiliares</div><div style="color:var(--muted);font-size:12px;">(Personas que tienen activada la casilla "Aux. Mes" en el mes seleccionado)</div>';
+
+        // subindicator container (three small stat boxes: Cantidad de informes, Horas, Cursos Bíblicos)
+        const auxStats = document.createElement('div');
+        auxStats.style.display = 'flex';
+        auxStats.style.gap = '10px';
+        auxStats.style.alignItems = 'center';
+
+        const auxCountBox = document.createElement('div');
+        auxCountBox.style.background = '#fff';
+        auxCountBox.style.border = '1px solid var(--subtle)';
+        auxCountBox.style.borderRadius = '8px';
+        auxCountBox.style.padding = '8px 10px';
+        auxCountBox.style.minWidth = '140px';
+        auxCountBox.style.textAlign = 'center';
+        auxCountBox.innerHTML = '<div style="font-weight:700; color:var(--muted); font-size:12px;">Cantidad de informes</div><div style="font-weight:700; font-size:15px;">0</div>';
+
+        const auxHoursBox = document.createElement('div');
+        auxHoursBox.style.background = '#fff';
+        auxHoursBox.style.border = '1px solid var(--subtle)';
+        auxHoursBox.style.borderRadius = '8px';
+        auxHoursBox.style.padding = '8px 10px';
+        auxHoursBox.style.minWidth = '120px';
+        auxHoursBox.style.textAlign = 'center';
+        auxHoursBox.innerHTML = '<div style="font-weight:700; color:var(--muted); font-size:12px;">Horas</div><div style="font-weight:700; font-size:15px;">0</div>';
+
+        const auxCoursesBox = document.createElement('div');
+        auxCoursesBox.style.background = '#fff';
+        auxCoursesBox.style.border = '1px solid var(--subtle)';
+        auxCoursesBox.style.borderRadius = '8px';
+        auxCoursesBox.style.padding = '8px 10px';
+        auxCoursesBox.style.minWidth = '140px';
+        auxCoursesBox.style.textAlign = 'center';
+        auxCoursesBox.innerHTML = '<div style="font-weight:700; color:var(--muted); font-size:12px;">Cursos Bíblicos</div><div style="font-weight:700; font-size:15px;">0</div>';
+
+        auxStats.appendChild(auxCountBox);
+        auxStats.appendChild(auxHoursBox);
+        auxStats.appendChild(auxCoursesBox);
+
+        auxRow.appendChild(auxDesc);
+        auxRow.appendChild(auxStats);
+        // Precursores Regulares block (NEW)
+        const regRow = document.createElement('div');
+        regRow.style.display = 'flex';
+        regRow.style.alignItems = 'center';
+        regRow.style.justifyContent = 'space-between';
+        regRow.style.gap = '12px';
+        regRow.style.marginTop = '6px';
+
+        const regDesc = document.createElement('div');
+        regDesc.innerHTML = '<div style="font-weight:700;color:var(--muted);font-size:13px;">Precursores Regulares</div><div style="color:var(--muted);font-size:12px;">(Aux. Mes NO activado y Horas &gt; 1 en el mes seleccionado)</div>';
+
+        const regStats = document.createElement('div');
+        regStats.style.display = 'flex';
+        regStats.style.gap = '10px';
+        regStats.style.alignItems = 'center';
+
+        const regCountBox = document.createElement('div');
+        regCountBox.style.background = '#fff';
+        regCountBox.style.border = '1px solid var(--subtle)';
+        regCountBox.style.borderRadius = '8px';
+        regCountBox.style.padding = '8px 10px';
+        regCountBox.style.minWidth = '140px';
+        regCountBox.style.textAlign = 'center';
+        regCountBox.innerHTML = '<div style="font-weight:700; color:var(--muted);font-size:12px;">Cantidad de informes</div><div style="font-weight:700; font-size:15px;">0</div>';
+
+        const regHoursBox = document.createElement('div');
+        regHoursBox.style.background = '#fff';
+        regHoursBox.style.border = '1px solid var(--subtle)';
+        regHoursBox.style.borderRadius = '8px';
+        regHoursBox.style.padding = '8px 10px';
+        regHoursBox.style.minWidth = '120px';
+        regHoursBox.style.textAlign = 'center';
+        regHoursBox.innerHTML = '<div style="font-weight:700; color:var(--muted);font-size:12px;">Horas</div><div style="font-weight:700; font-size:15px;">0</div>';
+
+        const regCoursesBox = document.createElement('div');
+        regCoursesBox.style.background = '#fff';
+        regCoursesBox.style.border = '1px solid var(--subtle)';
+        regCoursesBox.style.borderRadius = '8px';
+        regCoursesBox.style.padding = '8px 10px';
+        regCoursesBox.style.minWidth = '140px';
+        regCoursesBox.style.textAlign = 'center';
+        regCoursesBox.innerHTML = '<div style="font-weight:700; color:var(--muted);font-size:12px;">Cursos Bíblicos</div><div style="font-weight:700; font-size:15px;">0</div>';
+
+        regStats.appendChild(regCountBox);
+        regStats.appendChild(regHoursBox);
+        regStats.appendChild(regCoursesBox);
+
+        regRow.appendChild(regDesc);
+        regRow.appendChild(regStats);
+        body.appendChild(auxRow);
+        body.appendChild(regRow);
+
+
+
+        // footer with close action
+        const footer = document.createElement('div');
+        footer.style.padding = '10px 14px';
+        footer.style.borderTop = '1px solid var(--subtle)';
+        footer.style.display = 'flex';
+        footer.style.justifyContent = 'flex-end';
+        const fClose = document.createElement('button');
+        fClose.className = 'secondary';
+        fClose.textContent = 'Cerrar';
+        fClose.addEventListener('click', () => modal.remove());
+        footer.appendChild(fClose);
+
+        card.appendChild(hdr);
+        card.appendChild(body);
+        card.appendChild(footer);
+        modal.appendChild(card);
+        document.body.appendChild(modal);
+
+        // utility: build last N months (YYYY-MM strings) ending at given monthKey inclusive
+        function lastNMonths(monthKey, n){
+          const parts = String(monthKey || '').split('-').map(Number);
+          if(parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])){
+            const now = new Date();
+            return lastNMonths(now.toISOString().slice(0,7), n);
+          }
+          let y = parts[0], m = parts[1];
+          const res = [];
+          for(let i=0;i<n;i++){
+            res.push(`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`);
+            m--;
+            if(m < 1){ m = 12; y--; }
+          }
+          return res; // newest-first (end month first), but membership doesn't depend on order
+        }
+
+        // compute and render Total Activos based on selected month
+        function computeTotalActivos(selectedMonth){
+          const months = lastNMonths(selectedMonth, 6);
+          const setIds = new Set();
+          people.forEach(p => {
+            if(!p.activities) return;
+            for(const mk of months){
+              const act = p.activities[mk];
+              if(!act) continue;
+              const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+              // treat numeric >=1 (or exactly '1') as activity; include if numeric value >=1
+              const n = Number(hoursStr);
+              if(hoursStr !== '' && !isNaN(n) && n >= 1){
+                setIds.add(p.id);
+                break;
+              }
+            }
+          });
+          return setIds.size;
+        }
+
+        // helper to compute "Publicadores" stats in the selected month:
+        // Publicadores: designation != 'Precursor Regular' AND Aux. Mes not active in that month,
+        // AND have hours >= 1 (numeric) in the selected month.
+        // Returns an object { count: <number of persons>, courses: <sum of studies for those persons> }
+        function computePublicadores(selectedMonth){
+          const sel = selectedMonth || monthInput.value || new Date().toISOString().slice(0,7);
+          let count = 0;
+          let coursesSum = 0;
+          people.forEach(p => {
+            if(!p.activities) return;
+            const act = p.activities[sel];
+            if(!act) return;
+            // must not be Precursor Regular
+            if(String(p.designation || '').trim() === 'Precursor Regular') return;
+            // Aux. Mes must NOT be active (false/undefined)
+            if(!!act.aux) return;
+            // hours must be numeric and >= 1
+            const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+            const h = Number(hoursStr);
+            if(hoursStr !== '' && !isNaN(h) && h >= 1){
+              count++;
+              // accumulate studies (Estudios) as numeric when possible
+              const studiesStr = (act.studies !== undefined && act.studies !== null) ? String(act.studies).trim() : '';
+              const s = Number(studiesStr);
+              if(studiesStr !== '' && !isNaN(s)){
+                coursesSum += s;
+              }
+            }
+          });
+          return { count, courses: coursesSum };
+        }
+
+        // helper to compute "Precursores Regulares" stats in the selected month:
+        // Precursores Regulares: Aux. Mes NOT active AND Hours > 1 (numeric) in the selected month.
+        // Returns an object { count: <number>, hours: <sum hours numeric>, courses: <sum studies numeric> }
+        function computePrecursoresRegulares(selectedMonth){
+          const sel = selectedMonth || monthInput.value || new Date().toISOString().slice(0,7);
+          let count = 0;
+          let hoursSum = 0;
+          let coursesSum = 0;
+          people.forEach(p => {
+            if(!p.activities) return;
+            const act = p.activities[sel];
+            if(!act) return;
+            // Aux. Mes must NOT be active
+            if(!!act.aux) return;
+            // hours must be numeric and > 1
+            const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+            const h = Number(hoursStr);
+            if(hoursStr !== '' && !isNaN(h) && h > 1){
+              count++;
+              hoursSum += h;
+              const studiesStr = (act.studies !== undefined && act.studies !== null) ? String(act.studies).trim() : '';
+              const s = Number(studiesStr);
+              if(studiesStr !== '' && !isNaN(s)) coursesSum += s;
+            }
+          });
+          return { count, hours: hoursSum, courses: coursesSum };
+        }
+
+        // helper to compute "Precursores Auxiliares" stats in the selected month:
+        // Precursores Auxiliares: have Aux. Mes activated in the selected month.
+        // Returns an object { count: <number of persons>, hours: <sum of hours numeric>, courses: <sum of studies numeric> }
+        function computePrecursoresAuxiliares(selectedMonth){
+          const sel = selectedMonth || monthInput.value || new Date().toISOString().slice(0,7);
+          let count = 0;
+          let hoursSum = 0;
+          let coursesSum = 0;
+          people.forEach(p => {
+            if(!p.activities) return;
+            const act = p.activities[sel];
+            if(!act) return;
+            if(!!act.aux){
+              count++;
+              const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+              const h = Number(hoursStr);
+              if(hoursStr !== '' && !isNaN(h)) hoursSum += h;
+              const studiesStr = (act.studies !== undefined && act.studies !== null) ? String(act.studies).trim() : '';
+              const s = Number(studiesStr);
+              if(studiesStr !== '' && !isNaN(s)) coursesSum += s;
+            }
+          });
+          return { count, hours: hoursSum, courses: coursesSum };
+        }
+
+        // initial compute and render (update Total Activos, Publicadores, Precursores Regulares and Precursores Auxiliares stats)
+        function refresh(){
+          const sel = monthInput.value || new Date().toISOString().slice(0,7);
+          const total = computeTotalActivos(sel);
+          valueBox.textContent = String(total);
+
+          // update Publicadores "Cantidad de informes" and "Cursos Bíblicos"
+          try {
+            const stats = computePublicadores(sel);
+            const countEl = pubCountBox.querySelector('div:nth-child(2)');
+            if(countEl) countEl.textContent = String(stats.count);
+            const coursesEl = pubCoursesBox.querySelector('div:nth-child(2)');
+            if(coursesEl) coursesEl.textContent = String(stats.courses);
+          } catch (err) {
+            // ignore if DOM shape changes
+          }
+
+          // update Precursores Regulares subindicators: Cantidad de informes, Horas, Cursos Bíblicos
+          try {
+            const regStatsObj = computePrecursoresRegulares(sel);
+            const regCountEl = regCountBox.querySelector('div:nth-child(2)');
+            if(regCountEl) regCountEl.textContent = String(regStatsObj.count);
+            const regHoursEl = regHoursBox.querySelector('div:nth-child(2)');
+            if(regHoursEl) regHoursEl.textContent = String(regStatsObj.hours);
+            const regCoursesEl = regCoursesBox.querySelector('div:nth-child(2)');
+            if(regCoursesEl) regCoursesEl.textContent = String(regStatsObj.courses);
+          } catch (err) {
+            // ignore if DOM shape changes
+          }
+
+          // update Precursores Auxiliares subindicators: Cantidad de informes, Horas, Cursos Bíblicos
+          try {
+            const auxStats = computePrecursoresAuxiliares(sel);
+            const auxCountEl = auxCountBox.querySelector('div:nth-child(2)');
+            if(auxCountEl) auxCountEl.textContent = String(auxStats.count);
+            const auxHoursEl = auxHoursBox.querySelector('div:nth-child(2)');
+            if(auxHoursEl) auxHoursEl.textContent = String(auxStats.hours);
+            const auxCoursesEl = auxCoursesBox.querySelector('div:nth-child(2)');
+            if(auxCoursesEl) auxCoursesEl.textContent = String(auxStats.courses);
+          } catch (err) {
+            // ignore if DOM shape changes
+          }
+        }
+
+        // persist selection when changed and trigger refresh
+        monthInput.addEventListener('change', (ev) => {
+          try{ localStorage.setItem('jw_report_last_month_v1', String(ev.target.value || '')); }catch(e){}
+          refresh();
+        });
+        // close handlers
+        closeBtn.addEventListener('click', () => modal.remove());
+        // click outside card closes modal
+        modal.addEventListener('click', (ev) => { if(ev.target === modal) modal.remove(); });
+
+        // initial populate
+        refresh();
+      });
+      // Only show the button when no person is selected (this function rebuilds the bar each time,
+      // so the button will not be rendered when a person is selected because anySelected will be true)
+      wrap.appendChild(reportBtn);
+    }
+
+    // show range selector button only when a search query is present
+    if(searchInput.value.trim()){
+      const rangeBtn = document.createElement('button');
+      rangeBtn.className = 'secondary';
+      rangeBtn.textContent = 'Seleccionar Rango';
+      rangeBtn.style.marginLeft = '10px';
+      rangeBtn.addEventListener('click', () => {
+        activityRangeActive = !activityRangeActive;
+        // if deactivating, clear stored range
+        if(!activityRangeActive){
+          activityRangeFrom = null;
+          activityRangeTo = null;
+        } else {
+          // initialize defaults to current or previously selected
+          const anym = people.find(p => p.activities && p.activities._lastMonth);
+          const cur = anym ? anym.activities._lastMonth : new Date().toISOString().slice(0,7);
+          activityRangeFrom = activityRangeFrom || cur;
+          activityRangeTo = activityRangeTo || cur;
+        }
+        updateOptionsBar();
+        render(searchInput.value);
+      });
+      wrap.appendChild(rangeBtn);
+
+      if(activityRangeActive){
+        const from = document.createElement('input');
+        from.type = 'month';
+        from.value = activityRangeFrom || init;
+        from.style.marginLeft = '8px';
+        from.addEventListener('change', (e) => {
+          activityRangeFrom = e.target.value;
+        });
+
+        const to = document.createElement('input');
+        to.type = 'month';
+        to.value = activityRangeTo || init;
+        to.style.marginLeft = '6px';
+        to.addEventListener('change', (e) => {
+          activityRangeTo = e.target.value;
+        });
+
+        const apply = document.createElement('button');
+        apply.className = 'primary';
+        apply.textContent = 'Aplicar Rango';
+        apply.style.marginLeft = '8px';
+        apply.addEventListener('click', () => {
+          if(!activityRangeFrom || !activityRangeTo){
+            alert('Seleccione ambos meses: desde y hasta.');
+            return;
+          }
+          // basic validation: ensure from <= to
+          if(activityRangeFrom > activityRangeTo){
+            alert('El mes "desde" debe ser anterior o igual al mes "hasta".');
+            return;
+          }
+          // keep activityRangeActive true and re-render rows
+          render(searchInput.value);
+        });
+
+        wrap.appendChild(from);
+        wrap.appendChild(to);
+        wrap.appendChild(apply);
+      }
+    }
+
+    bar.appendChild(wrap);
+  } else {
+    // Registry: add "Borrar Selección" red button
+    bar.classList.add('has-registry-actions');
+    const btn = document.createElement('button');
+    btn.id = 'clearSelectionBtn';
+    btn.className = 'danger';
+    btn.textContent = 'Borrar Selección';
+    btn.title = 'Borrar el registro seleccionado';
+    btn.addEventListener('click', () => {
+      const sel = tbody.querySelector('tr.selected');
+      // If no selection, ask whether to delete ALL records
+      if(!sel){
+        if(!confirm('No hay registro seleccionado. ¿Desea borrar TODO el registro de personas? Esta acción no se puede deshacer.')) {
+          return;
+        }
+        // clear all records
+        people = [];
+        save();
+        render('');
+        updateOptionsBar();
+        return;
+      }
+      const id = sel.dataset.id;
+      if(!id) return;
+      if(confirm('¿Eliminar registro seleccionado?')){
+        people = people.filter(p => p.id !== id);
+        save();
+        render(searchInput.value);
+        // refresh options bar (remain in registry mode)
+        updateOptionsBar();
       }
     });
-    listContainer.appendChild(ul);
+    bar.appendChild(btn);
 
-    // Add event listeners for inputs (accept/display currency formatted values)
-    listContainer.querySelectorAll('.tcr-cupo-input').forEach(input => {
-      input.addEventListener('change', (e) => {
-        const accountKey = e.target.dataset.account;
-        // Parse formatted currency string back to number
-        const raw = e.target.value || '';
-        const cleaned = String(raw).replace(/\s/g,'').replace(/\$/g,'').replace(/CLP/g,'').replace(/,/g,'').replace(/\./g,'');
-        // cleaned may be like "123456" or include decimal separator if user typed dot/comma; attempt robust parse:
-        let numeric = parseFloat(raw.toString().replace(/[^0-9\-,\.]/g, '').replace(/\./g, '').replace(/,/g, '.'));
-        if (isNaN(numeric)) {
-          // fallback to integer extraction
-          numeric = parseFloat(cleaned) || 0;
-        }
-        if (numeric < 0) numeric = 0;
-        // store on account object
-        if (!accounts[accountKey]) accounts[accountKey] = {};
-        accounts[accountKey].tcrLimit = numeric;
-        // Update displayed disponible for this account based on recalculated used sum
-        const dispoEl = listContainer.querySelector(`.tcr-disponible[data-account="${accountKey}"]`);
-        const utilizadoEl = listContainer.querySelector(`.tcr-utilizado[data-account="${accountKey}"]`);
-        const used = transactions
-          .filter(t => t.account === accountKey)
-          .reduce((sum, t) => {
-            const amt = Math.abs(Number(t.amount || 0));
-            const totalInst = Number(t.totalInstallments) || 1;
-            const currentInst = Number(t.currentInstallment) || 1;
-            const remaining = Math.max(1, totalInst - currentInst + 1);
-            return sum + (amt * remaining);
-          }, 0);
-        const disp = accounts[accountKey].tcrLimit - used;
-        if (dispoEl) dispoEl.textContent = formatCurrency(disp);
-        if (utilizadoEl) utilizadoEl.textContent = formatCurrency(used);
-        // Rewrite the input value to a consistent currency format
-        e.target.value = formatCurrency(accounts[accountKey].tcrLimit);
-        // persist and refresh lists elsewhere
-        saveToLocalStorage();
-      });
+    // New "Grupos" button placed to the right of "Borrar Selección"
+    const groupsBtn = document.createElement('button');
+    groupsBtn.id = 'groupsBtn';
+    groupsBtn.className = 'secondary';
+    groupsBtn.textContent = 'Grupos';
+    groupsBtn.title = 'Administrar Grupos';
+    groupsBtn.style.marginLeft = '8px';
 
-      // allow Enter key to blur and trigger change, and keep currency formatting on blur
-      input.addEventListener('keypress', (ev) => {
-        if (ev.key === 'Enter') {
-          ev.preventDefault();
-          input.blur();
+    groupsBtn.addEventListener('click', () => {
+      // close any existing groups popup
+      const existing = document.getElementById('groupsPopup');
+      if (existing) {
+        existing.remove();
+        return;
+      }
+
+      // compute month-year date (MM-YYYY) and build editable title span (persisted separately)
+      const now = new Date();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yyyy = String(now.getFullYear());
+      // load persisted group title or default
+      const savedGroupTitle = (function(){
+        try{ return localStorage.getItem(GROUP_TITLE_KEY) || 'GRUPOS DE SERVICIO OESTE'; }catch(e){ return 'GRUPOS DE SERVICIO OESTE'; }
+      })();
+      // We will render title as: [editable span with savedGroupTitle] - [non-editable date span]
+
+      // group people by numeric group (only numeric groups shown) but keep reference to person id and role
+      const groupsMap = {};
+      people.forEach(p => {
+        const g = (p.group || '').toString().trim();
+        if (/^\d+$/.test(g)) {
+          if (!groupsMap[g]) groupsMap[g] = [];
+          // use congName fallback
+          const displayName = (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim();
+          groupsMap[g].push({ id: p.id, name: displayName, role: (p.groupRole || '') });
         }
       });
 
-      input.addEventListener('blur', (ev) => {
-        // ensure currency formatting on blur even if user didn't change (keeps consistent display)
-        const accountKey = ev.target.dataset.account;
-        const val = accounts[accountKey] && accounts[accountKey].tcrLimit ? accounts[accountKey].tcrLimit : 0;
-        ev.target.value = formatCurrency(Number(val || 0));
+      // sort group numbers ascending
+      const groupNums = Object.keys(groupsMap).map(Number).sort((a,b) => a-b).map(String);
+
+      // build popup container
+      const popup = document.createElement('div');
+      popup.id = 'groupsPopup';
+      popup.style.position = 'fixed';
+      popup.style.inset = '0';
+      popup.style.display = 'flex';
+      popup.style.alignItems = 'center';
+      popup.style.justifyContent = 'center';
+      popup.style.background = 'rgba(15,23,42,0.3)';
+      popup.style.zIndex = '120';
+      popup.style.padding = '18px';
+
+      // inner card - start with auto width; we'll set an exact width later based on content
+      const card = document.createElement('div');
+      card.style.width = 'auto';
+      card.style.maxWidth = '95vw';
+      card.style.maxHeight = 'calc(100vh - 40px)';
+      card.style.background = 'var(--card)';
+      card.style.border = '1px solid var(--subtle)';
+      card.style.borderRadius = '10px';
+      card.style.boxShadow = '0 18px 48px rgba(16,24,40,0.18)';
+      card.style.overflow = 'hidden';
+      card.style.display = 'flex';
+      card.style.flexDirection = 'column';
+
+      // header
+      const hdr = document.createElement('div');
+      hdr.style.display = 'flex';
+      hdr.style.alignItems = 'center';
+      hdr.style.justifyContent = 'space-between';
+      hdr.style.padding = '10px 12px';
+      hdr.style.borderBottom = '1px solid var(--subtle)';
+
+      const h3 = document.createElement('h3');
+      h3.style.margin = '0';
+      h3.style.fontSize = '15px';
+      h3.style.fontWeight = '700';
+      // create editable title span and non-editable date span
+      const titleSpan = document.createElement('span');
+      titleSpan.id = 'groupsTitleSpan';
+      titleSpan.textContent = savedGroupTitle;
+      titleSpan.style.cursor = 'default';
+      titleSpan.title = 'Doble click para editar el título (fecha no editable)';
+
+      // only the date portion: non-editable
+      const dateSpan = document.createElement('span');
+      dateSpan.id = 'groupsDateSpan';
+      dateSpan.textContent = ` - ${mm}-${yyyy}`;
+      dateSpan.style.fontWeight = '600';
+      dateSpan.style.marginLeft = '6px';
+      // assemble into header h3
+      h3.appendChild(titleSpan);
+      h3.appendChild(dateSpan);
+
+      // dblclick handler: allow editing only the titleSpan (not the date)
+      titleSpan.addEventListener('dblclick', (ev) => {
+        ev.stopPropagation();
+        // prevent creating multiple inputs
+        if (titleSpan.dataset.editing === '1') return;
+        titleSpan.dataset.editing = '1';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = titleSpan.textContent || '';
+        input.style.fontSize = '15px';
+        input.style.fontWeight = '700';
+        input.style.padding = '4px 6px';
+        input.style.borderRadius = '6px';
+        input.style.border = '1px solid var(--subtle)';
+        input.style.minWidth = '160px';
+        // replace span with input in place
+        h3.replaceChild(input, titleSpan);
+        input.focus();
+        input.select();
+
+        function commit(){
+          const val = (input.value || '').trim() || 'GRUPOS DE SERVICIO OESTE';
+          // save persisted title
+          try{ localStorage.setItem(GROUP_TITLE_KEY, val); }catch(e){}
+          // restore titleSpan with new value
+          titleSpan.textContent = val;
+          titleSpan.dataset.editing = '0';
+          try{ h3.replaceChild(titleSpan, input); }catch(e){}
+        }
+        function cancel(){
+          titleSpan.dataset.editing = '0';
+          try{ h3.replaceChild(titleSpan, input); }catch(e){}
+        }
+
+        input.addEventListener('blur', commit, { once: true });
+        input.addEventListener('keydown', (ke) => {
+          if(ke.key === 'Enter'){ ke.preventDefault(); commit(); }
+          if(ke.key === 'Escape'){ ke.preventDefault(); cancel(); }
+        });
       });
 
-      // on focus show raw number for easier editing
-      input.addEventListener('focus', (ev) => {
-        const accountKey = ev.target.dataset.account;
-        const val = accounts[accountKey] && accounts[accountKey].tcrLimit ? accounts[accountKey].tcrLimit : 0;
-        ev.target.value = val || '';
+      // compute total number of records shown in the groups popup
+      const totalCount = groupNums.reduce((sum, g) => sum + ((groupsMap[g] && groupsMap[g].length) ? groupsMap[g].length : 0), 0);
+
+      // Total display box (placed to the left of the close button)
+      const rightWrap = document.createElement('div');
+      rightWrap.style.display = 'flex';
+      rightWrap.style.alignItems = 'center';
+      rightWrap.style.gap = '10px';
+
+      // PDF export button (red) placed to the left of the Total box
+      const pdfBtn = document.createElement('button');
+      pdfBtn.className = 'danger';
+      pdfBtn.textContent = 'PDF';
+      pdfBtn.title = 'Exportar grupos a PDF (horizontal, carta)';
+      pdfBtn.style.padding = '8px 10px';
+      pdfBtn.style.marginRight = '6px';
+
+      const totalBox = document.createElement('div');
+      totalBox.style.display = 'flex';
+      totalBox.style.alignItems = 'center';
+      totalBox.style.gap = '8px';
+      totalBox.style.padding = '6px 10px';
+      totalBox.style.borderRadius = '8px';
+      totalBox.style.background = 'linear-gradient(180deg, rgba(11,102,255,0.06), rgba(11,102,255,0.03))';
+      totalBox.style.border = '1px solid rgba(11,102,255,0.06)';
+      totalBox.style.fontWeight = '700';
+      totalBox.style.fontSize = '13px';
+      totalBox.style.color = 'var(--accent-strong)';
+
+      const lbl = document.createElement('div');
+      lbl.textContent = 'Total:';
+      lbl.style.color = 'var(--muted)';
+      lbl.style.fontWeight = '700';
+      lbl.style.fontSize = '13px';
+
+      const val = document.createElement('div');
+      val.textContent = String(totalCount);
+      val.style.minWidth = '28px';
+      val.style.textAlign = 'right';
+
+      totalBox.appendChild(lbl);
+      totalBox.appendChild(val);
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'icon-btn';
+      closeBtn.innerHTML = '&times;';
+      closeBtn.title = 'Cerrar';
+      closeBtn.addEventListener('click', () => popup.remove());
+
+      rightWrap.appendChild(pdfBtn);
+      rightWrap.appendChild(totalBox);
+      rightWrap.appendChild(closeBtn);
+
+      hdr.appendChild(h3);
+      hdr.appendChild(rightWrap);
+
+      // body: horizontal columns for each group left-to-right
+      const body = document.createElement('div');
+      body.style.display = 'flex';
+      body.style.gap = '12px';
+      body.style.padding = '12px';
+      body.style.alignItems = 'flex-start';
+      body.style.justifyContent = 'flex-start';
+      // allow horizontal scroll internally if viewport too small, but we'll aim to size card to fit content
+      body.style.overflowX = 'auto';
+
+      // Build columns in memory first so we can measure widths
+      const columns = [];
+
+      if (groupNums.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.padding = '20px';
+        empty.style.color = 'var(--muted)';
+        empty.textContent = 'No hay miembros asignados a grupos numéricos.';
+        body.appendChild(empty);
+      } else {
+        // create a column element for each group and collect name text for measurement
+        groupNums.forEach(gNum => {
+          const col = document.createElement('div');
+          col.style.flex = '0 0 auto';
+          col.style.background = '#fff';
+          col.style.border = '1px solid var(--subtle)';
+          col.style.borderRadius = '8px';
+          col.style.padding = '6px';
+          col.style.boxSizing = 'border-box';
+          col.style.display = 'flex';
+          col.style.flexDirection = 'column';
+          col.style.gap = '4px';
+          col.style.position = 'relative'; // for resizer handle positioning
+
+          const caption = document.createElement('div');
+          caption.style.fontWeight = '700';
+          caption.style.fontSize = '12px';
+          caption.style.textAlign = 'center';
+          caption.textContent = `Grupo ${gNum}`;
+          col.appendChild(caption);
+
+          const listWrap = document.createElement('div');
+          listWrap.style.display = 'flex';
+          listWrap.style.flexDirection = 'column';
+          listWrap.style.gap = '4px';
+          listWrap.style.marginTop = '6px';
+
+          // use objects with id/name/role and sort by role priority then name
+          const persons = groupsMap[gNum] || [];
+          persons.sort((a,b) => {
+            const priority = role => (role === 'SUP' ? 0 : (role === 'AUX' ? 1 : 2));
+            const pa = priority(a.role), pb = priority(b.role);
+            if(pa !== pb) return pa - pb;
+            return a.name.localeCompare(b.name,'es');
+          });
+
+          persons.forEach((personObj, personIndex) => {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.justifyContent = 'center';
+            row.style.gap = '6px';
+            row.style.padding = '4px';
+            row.style.borderRadius = '6px';
+            row.style.background = 'transparent';
+            row.style.fontSize = '13px';
+            row.dataset.personId = personObj.id;
+
+            // badge wrapper to hold badge and a small positioned sequence number (so number doesn't affect layout)
+            const badgeWrap = document.createElement('div');
+            badgeWrap.style.position = 'relative';
+            badgeWrap.style.flex = '0 0 auto';
+            badgeWrap.style.display = 'flex';
+            badgeWrap.style.alignItems = 'center';
+            badgeWrap.style.justifyContent = 'center';
+            badgeWrap.style.width = '30px';
+            badgeWrap.style.height = '20px';
+
+            // role badge (square) on left if set
+            const badge = document.createElement('div');
+            badge.style.width = '100%';
+            badge.style.height = '100%';
+            badge.style.display = 'flex';
+            badge.style.alignItems = 'center';
+            badge.style.justifyContent = 'center';
+            badge.style.borderRadius = '4px';
+            badge.style.fontSize = '11px';
+            badge.style.fontWeight = '700';
+            badge.style.color = '#fff';
+            if(personObj.role === 'SUP'){
+              badge.textContent = 'SUP';
+              badge.style.background = 'var(--accent-warm)';
+              badge.style.visibility = 'visible';
+            } else if(personObj.role === 'AUX'){
+              badge.textContent = 'AUX';
+              badge.style.background = 'var(--accent)';
+              badge.style.visibility = 'visible';
+            } else {
+              badge.textContent = '';
+              badge.style.background = 'transparent';
+              badge.style.visibility = 'hidden';
+            }
+
+            // sequence number element positioned under the badge; show numbers starting at 3 (index 2 => number 3)
+            const seq = document.createElement('div');
+            seq.className = 'group-seq';
+            const displayIndex = personIndex + 1; // 1-based
+            // always show 1-based sequence number starting at 1
+            seq.textContent = String(displayIndex);
+            seq.style.visibility = 'visible';
+
+            const nameEl = document.createElement('div');
+            nameEl.style.flex = '1 1 auto';
+            nameEl.style.textAlign = 'center';
+            nameEl.textContent = personObj.name;
+            nameEl.style.cursor = 'pointer';
+
+            // clicking the name opens a small selector tab to pick SUP or AUX
+            nameEl.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              // remove any other selector panels
+              const openSel = document.getElementById('groupRoleSelector');
+              if(openSel) openSel.remove();
+
+              const sel = document.createElement('div');
+              sel.id = 'groupRoleSelector';
+              sel.style.position = 'absolute';
+              sel.style.zIndex = 200;
+              sel.style.display = 'flex';
+              sel.style.gap = '6px';
+              sel.style.padding = '6px';
+              sel.style.borderRadius = '8px';
+              sel.style.background = '#fff';
+              sel.style.border = '1px solid var(--subtle)';
+              // SUP button
+              const supBtn = document.createElement('button');
+              supBtn.className = 'secondary';
+              supBtn.textContent = 'SUP';
+              supBtn.style.padding = '6px 10px';
+              supBtn.addEventListener('click', (ev2) => {
+                ev2.stopPropagation();
+                // persist role to person record
+                const pers = people.find(pp => pp.id === personObj.id);
+                if(pers) pers.groupRole = 'SUP';
+                save();
+                // update badge & resort column
+                personObj.role = 'SUP';
+                badge.textContent = 'SUP';
+                badge.style.background = 'var(--accent-warm)';
+                badge.style.visibility = 'visible';
+                // resort current column persons and redraw the column entries
+                redrawColumn(gNum, col, GROUP_COLS_KEY);
+                sel.remove();
+              });
+              // AUX button
+              const auxBtn = document.createElement('button');
+              auxBtn.className = 'secondary';
+              auxBtn.textContent = 'AUX';
+              auxBtn.style.padding = '6px 10px';
+              auxBtn.addEventListener('click', (ev2) => {
+                ev2.stopPropagation();
+                const pers = people.find(pp => pp.id === personObj.id);
+                if(pers) pers.groupRole = 'AUX';
+                save();
+                personObj.role = 'AUX';
+                badge.textContent = 'AUX';
+                badge.style.background = 'var(--accent)';
+                badge.style.visibility = 'visible';
+                redrawColumn(gNum, col, GROUP_COLS_KEY);
+                sel.remove();
+              });
+
+              // Clear role button
+              const clearBtn = document.createElement('button');
+              clearBtn.className = 'secondary';
+              clearBtn.textContent = 'Limpiar';
+              clearBtn.style.padding = '6px 10px';
+              clearBtn.addEventListener('click', (ev2) => {
+                ev2.stopPropagation();
+                const pers = people.find(pp => pp.id === personObj.id);
+                if(pers) delete pers.groupRole;
+                save();
+                personObj.role = '';
+                badge.textContent = '';
+                badge.style.visibility = 'hidden';
+                redrawColumn(gNum, col, GROUP_COLS_KEY);
+                sel.remove();
+              });
+
+              sel.appendChild(supBtn);
+              sel.appendChild(auxBtn);
+              sel.appendChild(clearBtn);
+
+              document.body.appendChild(sel);
+              const rect = nameEl.getBoundingClientRect();
+              sel.style.left = (rect.left + window.scrollX) + 'px';
+              sel.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+
+              // click outside to close
+              setTimeout(() => {
+                const closeOnDoc = (ev3) => {
+                  if(!sel) return;
+                  if(!sel.contains(ev3.target) && ev3.target !== nameEl){
+                    sel.remove();
+                    document.removeEventListener('click', closeOnDoc);
+                  }
+                };
+                document.addEventListener('click', closeOnDoc);
+              }, 0);
+
+              supBtn.focus();
+            });
+
+            // assemble items: sequence number on the left, name in the middle, role badge on the right
+            badgeWrap.appendChild(badge);
+            row.appendChild(seq);
+            row.appendChild(nameEl);
+            row.appendChild(badgeWrap);
+            listWrap.appendChild(row);
+          });
+
+          col.appendChild(listWrap);
+          columns.push({ col, captionText: caption.textContent, persons, groupId: gNum });
+        });
+
+        // measurement and defaults
+        const ctx = document.createElement('canvas').getContext('2d');
+        ctx.font = '13px sans-serif';
+        const gap = 12; // gap between columns in px (matches body.style.gap)
+        const paddingH = 6 * 2 + 4; // left/right padding inside column + reduced buffer for compact rows
+        const minCol = 100;
+        const maxCol = 520;
+
+        // load saved widths if present (persist per-ordered group list)
+        const GROUP_COLS_KEY = 'people_registry_groups_cols_v1';
+        let savedWidths = null;
+        try {
+          const raw = localStorage.getItem(GROUP_COLS_KEY);
+          savedWidths = raw ? JSON.parse(raw) : null;
+        } catch (e) { savedWidths = null; }
+
+        let totalWidth = 0;
+        columns.forEach((cObj, index) => {
+          // measure caption width and longest name width (use person names)
+          const captionW = ctx.measureText(String(cObj.captionText || '')).width;
+          let longest = captionW;
+          cObj.persons.forEach(n => {
+            const w = ctx.measureText(String(n.name || '')).width;
+            if(w > longest) longest = w;
+          });
+          // compute column width with padding and clamp
+          const measured = Math.min(maxCol, Math.max(minCol, Math.ceil(longest + paddingH)));
+          // if saved width exists for this column index, prefer it
+          const saved = (Array.isArray(savedWidths) && typeof savedWidths[index] !== 'undefined') ? savedWidths[index] : null;
+          const colW = saved ? Math.max(60, Number(saved)) : measured;
+          cObj.computedWidth = colW;
+          totalWidth += colW;
+        });
+
+        // add gaps between columns and card paddings/margins
+        const totalGaps = Math.max(0, columns.length - 1) * gap;
+        const cardExtra = 24 + 24; // body padding left+right approx
+        let desiredWidth = totalWidth + totalGaps + cardExtra;
+        // Do not clamp to viewport: make the card exactly as wide as needed so all column content is visible.
+        const finalWidth = desiredWidth;
+
+        // helper to redraw a single column when roles change: resort persons and rebuild list
+        function redrawColumn(groupId, colEl, groupColsKey) {
+          try {
+            // find column object
+            const cobj = columns.find(c => c.groupId === groupId);
+            if(!cobj) return;
+            // refresh persons from groupsMap (reflect latest people array)
+            const updatedPersons = (groupsMap[groupId] || []).map(item => {
+              const pers = people.find(pp => pp.id === item.id);
+              return { id: item.id, name: (pers && pers.congName) ? pers.congName : item.name, role: pers ? (pers.groupRole || '') : item.role };
+            });
+            // sort by role priority then name
+            updatedPersons.sort((a,b) => {
+              const priority = role => (role === 'SUP' ? 0 : (role === 'AUX' ? 1 : 2));
+              const pa = priority(a.role), pb = priority(b.role);
+              if(pa !== pb) return pa - pb;
+              return a.name.localeCompare(b.name,'es');
+            });
+            cobj.persons = updatedPersons;
+
+            // rebuild listWrap
+            const listWrap = colEl.querySelector('div:nth-child(2)');
+            if(!listWrap) return;
+            listWrap.innerHTML = '';
+            updatedPersons.forEach((personObj, idx) => {
+              const row = document.createElement('div');
+              row.style.display = 'flex';
+              row.style.alignItems = 'center';
+              row.style.justifyContent = 'center';
+              row.style.gap = '6px';
+              row.style.padding = '4px';
+              row.style.borderRadius = '6px';
+              row.style.background = 'transparent';
+              row.style.fontSize = '13px';
+              row.dataset.personId = personObj.id;
+
+              // badge wrapper for positioning sequence number without changing layout
+              const badgeWrap = document.createElement('div');
+              badgeWrap.style.position = 'relative';
+              badgeWrap.style.flex = '0 0 auto';
+              badgeWrap.style.display = 'flex';
+              badgeWrap.style.alignItems = 'center';
+              badgeWrap.style.justifyContent = 'center';
+              badgeWrap.style.width = '30px';
+              badgeWrap.style.height = '20px';
+
+              const badge = document.createElement('div');
+              badge.style.width = '100%';
+              badge.style.height = '100%';
+              badge.style.display = 'flex';
+              badge.style.alignItems = 'center';
+              badge.style.justifyContent = 'center';
+              badge.style.borderRadius = '4px';
+              badge.style.fontSize = '11px';
+              badge.style.fontWeight = '700';
+              badge.style.color = '#fff';
+              if(personObj.role === 'SUP'){
+                badge.textContent = 'SUP';
+                badge.style.background = 'var(--accent-warm)';
+                badge.style.visibility = 'visible';
+              } else if(personObj.role === 'AUX'){
+                badge.textContent = 'AUX';
+                badge.style.background = 'var(--accent)';
+                badge.style.visibility = 'visible';
+              } else {
+                badge.textContent = '';
+                badge.style.background = 'transparent';
+                badge.style.visibility = 'hidden';
+              }
+
+              const seq = document.createElement('div');
+              seq.className = 'group-seq';
+              const displayIndex = idx + 1;
+              // always show 1-based sequence number starting at 1
+              seq.textContent = String(displayIndex);
+              seq.style.visibility = 'visible';
+
+              const nameEl = document.createElement('div');
+              nameEl.style.flex = '1 1 auto';
+              nameEl.style.textAlign = 'center';
+              nameEl.textContent = personObj.name;
+              nameEl.style.cursor = 'pointer';
+
+              nameEl.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                const openSel = document.getElementById('groupRoleSelector');
+                if(openSel) openSel.remove();
+
+                const sel = document.createElement('div');
+                sel.id = 'groupRoleSelector';
+                sel.style.position = 'absolute';
+                sel.style.zIndex = 200;
+                sel.style.display = 'flex';
+                sel.style.gap = '6px';
+                sel.style.padding = '6px';
+                sel.style.borderRadius = '8px';
+                sel.style.background = '#fff';
+                sel.style.border = '1px solid var(--subtle)';
+
+                const supBtn = document.createElement('button');
+                supBtn.className = 'secondary';
+                supBtn.textContent = 'SUP';
+                supBtn.style.padding = '6px 10px';
+                supBtn.addEventListener('click', (ev2) => {
+                  ev2.stopPropagation();
+                  const pers = people.find(pp => pp.id === personObj.id);
+                  if(pers) pers.groupRole = 'SUP';
+                  save();
+                  redrawColumn(groupId, colEl, GROUP_COLS_KEY);
+                  sel.remove();
+                });
+                const auxBtn = document.createElement('button');
+                auxBtn.className = 'secondary';
+                auxBtn.textContent = 'AUX';
+                auxBtn.style.padding = '6px 10px';
+                auxBtn.addEventListener('click', (ev2) => {
+                  ev2.stopPropagation();
+                  const pers = people.find(pp => pp.id === personObj.id);
+                  if(pers) pers.groupRole = 'AUX';
+                  save();
+                  redrawColumn(groupId, colEl, GROUP_COLS_KEY);
+                  sel.remove();
+                });
+                const clearBtn = document.createElement('button');
+                clearBtn.className = 'secondary';
+                clearBtn.textContent = 'Limpiar';
+                clearBtn.style.padding = '6px 10px';
+                clearBtn.addEventListener('click', (ev2) => {
+                  ev2.stopPropagation();
+                  const pers = people.find(pp => pp.id === personObj.id);
+                  if(pers) delete pers.groupRole;
+                  save();
+                  redrawColumn(groupId, colEl, GROUP_COLS_KEY);
+                  sel.remove();
+                });
+
+                sel.appendChild(supBtn);
+                sel.appendChild(auxBtn);
+                sel.appendChild(clearBtn);
+
+                document.body.appendChild(sel);
+                const rect = nameEl.getBoundingClientRect();
+                sel.style.left = (rect.left + window.scrollX) + 'px';
+                sel.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+
+                setTimeout(() => {
+                  const closeOnDoc = (ev3) => {
+                    if(!sel) return;
+                    if(!sel.contains(ev3.target) && ev3.target !== nameEl){
+                      sel.remove();
+                      document.removeEventListener('click', closeOnDoc);
+                    }
+                  };
+                  document.addEventListener('click', closeOnDoc);
+                }, 0);
+
+                supBtn.focus();
+              });
+
+              badgeWrap.appendChild(badge);
+              // assemble items: sequence number left, name middle, role badge right
+              row.appendChild(seq);
+              row.appendChild(nameEl);
+              row.appendChild(badgeWrap);
+              listWrap.appendChild(row);
+            });
+          } catch (err) {
+            console.error('redrawColumn error', err);
+          }
+        }
+
+        // apply computed widths and append columns to body
+        columns.forEach((cObj, idx) => {
+          // use the computed width for each column exactly (no scaling to fit viewport)
+          let w = cObj.computedWidth;
+          cObj.col.style.width = String(w) + 'px';
+          cObj.col.style.minWidth = String(w) + 'px';
+          cObj.col.style.maxWidth = String(w) + 'px';
+          // add a resizer handle on the right edge of each column (except last to avoid awkward overflow)
+          const resizer = document.createElement('div');
+          resizer.style.position = 'absolute';
+          resizer.style.top = '6px';
+          resizer.style.right = '-6px';
+          resizer.style.width = '12px';
+          resizer.style.height = 'calc(100% - 12px)';
+          resizer.style.cursor = 'col-resize';
+          resizer.style.zIndex = '20';
+          // small visible grip
+          resizer.style.display = 'flex';
+          resizer.style.alignItems = 'center';
+          resizer.style.justifyContent = 'center';
+          resizer.innerHTML = '<div style="width:2px;height:40%;background:rgba(15,23,42,0.06);border-radius:2px"></div>';
+          cObj.col.appendChild(resizer);
+
+          // pointer handling for resizing that column and updating widths array
+          let startX = 0;
+          let startW = 0;
+          const onPointerDown = (e) => {
+            e.preventDefault();
+            startX = e.clientX;
+            startW = cObj.col.getBoundingClientRect().width;
+            resizer.setPointerCapture && resizer.setPointerCapture(e.pointerId);
+            document.documentElement.style.cursor = 'col-resize';
+
+            function onPointerMove(ev){
+              const dx = ev.clientX - startX;
+              const desiredW = Math.max(60, Math.round(startW + dx));
+              // Apply the same width to all columns to keep uniform widths
+              columns.forEach(c => {
+                c.col.style.width = desiredW + 'px';
+                c.col.style.minWidth = desiredW + 'px';
+                c.col.style.maxWidth = desiredW + 'px';
+              });
+              // recalc total and adjust card width to fit all columns (uniform)
+              const currentTotal = columns.length * desiredW;
+              const newDesired = currentTotal + totalGaps + cardExtra;
+              const newFinal = Math.min(newDesired, Math.floor(window.innerWidth - 40));
+              card.style.width = newFinal + 'px';
+            }
+            function onPointerUp(ev){
+              document.removeEventListener('pointermove', onPointerMove);
+              document.removeEventListener('pointerup', onPointerUp);
+              document.documentElement.style.cursor = '';
+              try{ resizer.releasePointerCapture && resizer.releasePointerCapture(e.pointerId); }catch(_){}
+              // persist uniform width for all columns
+              try{
+                const widthVal = parseInt(cObj.col.style.width || '0',10) || 0;
+                const widths = columns.map(() => widthVal);
+                localStorage.setItem(GROUP_COLS_KEY, JSON.stringify(widths));
+              }catch(err){}
+            }
+            document.addEventListener('pointermove', onPointerMove);
+            document.addEventListener('pointerup', onPointerUp);
+          };
+          resizer.addEventListener('pointerdown', onPointerDown);
+
+          body.appendChild(cObj.col);
+        });
+
+        // set card width to exactly fit content (no clamping) so columns are always fully visible
+        card.style.width = finalWidth + 'px';
+        card.style.maxWidth = 'none';
+        card.style.overflow = 'visible';
+        // ensure the body holding columns won't force an internal horizontal scrollbar;
+        // allow the popup card to expand to the required width so all column content is shown.
+        body.style.overflowX = 'visible';
+      }
+
+      // PDF export handler: generate landscape letter-size PDF of the groups popup
+      try {
+        // attach handler only if pdfBtn exists
+        if (typeof pdfBtn !== 'undefined' && pdfBtn) {
+          pdfBtn.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            try{
+              const jsPDFmod = await import('https://esm.sh/jspdf@2.5.1');
+              const { jsPDF } = jsPDFmod;
+              // use compact settings: smaller base font and tighter line spacing
+              const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
+              const pageW = pdf.internal.pageSize.getWidth();
+              const pageH = pdf.internal.pageSize.getHeight();
+              const margin = 22; // slightly smaller margins to gain space
+              const usableW = pageW - margin * 2;
+              let y = margin;
+
+              // Title (smaller) - use persisted editable group title + automatic date (date not editable)
+              pdf.setFont('helvetica', 'bold');
+              pdf.setFontSize(12);
+              // compute pdf title from saved title + current date part
+              const pdfSavedTitle = (function(){ try{ return localStorage.getItem(GROUP_TITLE_KEY) || 'GRUPOS DE SERVICIO OESTE'; }catch(e){ return 'GRUPOS DE SERVICIO OESTE'; } })();
+              const pdfTitle = `${pdfSavedTitle} - ${mm}-${yyyy}`;
+              pdf.text(pdfTitle, margin, y);
+              y += 18;
+
+              // Add Total label prominently beneath title (compact)
+              pdf.setFont('helvetica', 'normal');
+              pdf.setFontSize(10);
+              pdf.text(`Total: ${totalCount}`, margin, y);
+              y += 16;
+
+              // Determine column widths from computed DOM widths of columns
+              const colWidths = columns.map(c => {
+                const wpx = parseInt(String(c.col.style.width || c.computedWidth || 120).replace('px',''),10) || c.computedWidth || 120;
+                return wpx;
+              });
+
+              // Normalize widths proportionally to fit usableW
+              const totalPx = colWidths.reduce((s,v)=>s+v,0) || 1;
+              const pdfColWidths = colWidths.map(w => Math.max(50, Math.floor((w / totalPx) * usableW)));
+
+              // Prepare compact table-like header row: use smaller bold font
+              pdf.setFont('helvetica', 'bold');
+              pdf.setFontSize(9);
+
+              // column X positions
+              const xPositions = [];
+              let x = margin;
+              pdfColWidths.forEach((w, i) => {
+                xPositions.push(x);
+                // Draw header centered in a compact style
+                const hdr = `Grupo ${columns[i].groupId}`;
+                pdf.text(hdr, x + w/2, y, { align: 'center' });
+                x += w;
+              });
+              y += 14;
+
+              // Switch to compact normal font for rows
+              pdf.setFont('helvetica', 'normal');
+              pdf.setFontSize(8.5);
+              const rowHeight = 13; // tighter than before
+
+              // Compute max rows to layout as table
+              const maxRows = Math.max(...columns.map(c => (c.persons && c.persons.length) ? c.persons.length : 0), 0);
+
+              // For each row index, print name and role/badge inside each column area
+              for(let rowIdx = 0; rowIdx < maxRows; rowIdx++){
+                // page break if necessary
+                if(y + rowHeight + margin > pageH){
+                  pdf.addPage();
+                  y = margin;
+                }
+                for(let ci = 0; ci < columns.length; ci++){
+                  const c = columns[ci];
+                  const w = pdfColWidths[ci];
+                  const px = xPositions[ci];
+                  const person = c.persons[rowIdx];
+                  if(person){
+                    // show compact "N. Name" with small badge for SUP/AUX if present
+                    const seq = String(rowIdx + 1);
+                    const name = person.name || '';
+                    const role = person.role || '';
+                    const text = `${seq}. ${name}`;
+                    // draw name left-aligned with small padding
+                    pdf.text(text, px + 4, y + 9, { maxWidth: w - 8 });
+
+                    // draw small colored badge for SUP/AUX on the right inside the cell
+                    if(role === 'SUP' || role === 'AUX'){
+                      const badgeText = role;
+                      const badgeFontSize = 7;
+                      pdf.setFontSize(badgeFontSize);
+                      const badgeW = Math.max(20, pdf.getTextWidth(badgeText) + 6);
+                      const badgeH = 10;
+                      const bx = px + w - badgeW - 4;
+                      const by = y + 2;
+                      if (role === 'SUP') {
+                        pdf.setFillColor(255,122,26);
+                      } else {
+                        pdf.setFillColor(11,102,255);
+                      }
+                      pdf.roundedRect(bx, by, badgeW, badgeH, 2, 2, 'F');
+                      pdf.setTextColor(255,255,255);
+                      pdf.text(badgeText, bx + badgeW/2, by + badgeH - 2, { align: 'center' });
+                      pdf.setTextColor(0,0,0);
+                      pdf.setFontSize(8.5);
+                    }
+                  }
+                }
+                y += rowHeight;
+              }
+
+              // After table, include generation date and a compact footer line
+              if(y + 30 > pageH - margin) {
+                pdf.addPage();
+                y = margin;
+              }
+              pdf.setFontSize(8);
+              pdf.text(`Generado: ${new Date().toLocaleString()}`, margin, pageH - margin - 6);
+
+              // Save PDF with compact filename in format YYYY.MM.DD-HH.MM - GRUPOS DE SERVICIO
+              const _d = new Date();
+              const fileName = `${_d.getFullYear()}.${String(_d.getMonth() + 1).padStart(2,'0')}.${String(_d.getDate()).padStart(2,'0')}-${String(_d.getHours()).padStart(2,'0')}.${String(_d.getMinutes()).padStart(2,'0')} - GRUPOS DE SERVICIO.pdf`;
+              pdf.save(fileName);
+            }catch(err){
+              console.error(err);
+              alert('Error al generar PDF de Grupos: ' + (err && err.message ? err.message : err));
+            }
+          });
+        }
+      } catch(e){
+        console.error('PDF handler attach failed', e);
+      }
+
+      // footer: simple close action
+      const footer = document.createElement('div');
+      footer.style.padding = '10px 12px';
+      footer.style.borderTop = '1px solid var(--subtle)';
+      footer.style.display = 'flex';
+      footer.style.justifyContent = 'flex-end';
+      const fClose = document.createElement('button');
+      fClose.className = 'secondary';
+      fClose.textContent = 'Cerrar';
+      fClose.addEventListener('click', () => popup.remove());
+      footer.appendChild(fClose);
+
+      card.appendChild(hdr);
+      card.appendChild(body);
+      card.appendChild(footer);
+      popup.appendChild(card);
+      document.body.appendChild(popup);
+
+      // close when clicking outside the card
+      popup.addEventListener('click', (ev) => {
+        if (ev.target === popup) popup.remove();
       });
+
+      // ensure we react to window resize to keep card within viewport and preserve column widths
+      window.addEventListener('resize', () => {
+        try{
+          const GROUP_COLS_KEY = 'people_registry_groups_cols_v1';
+          const saved = JSON.parse(localStorage.getItem(GROUP_COLS_KEY) || 'null');
+          if(saved && Array.isArray(saved) && saved.length){
+            // apply saved widths if card exists
+            columns.forEach((cObj, idx) => {
+              const w = saved[idx];
+              if(typeof w !== 'undefined' && w !== null){
+                const ww = Math.max(60, Number(w));
+                cObj.col.style.width = ww + 'px';
+                cObj.col.style.minWidth = ww + 'px';
+                cObj.col.style.maxWidth = ww + 'px';
+              }
+            });
+            // recalc total and adjust card width
+            const totalCols = columns.reduce((acc, c) => acc + (parseInt(c.col.style.width || '0',10) || 0), 0);
+            const totalGaps = Math.max(0, columns.length - 1) * 12;
+            const cardExtra = 24 + 24;
+            const desired = totalCols + totalGaps + cardExtra;
+            const final = Math.min(desired, Math.floor(window.innerWidth - 40));
+            card.style.width = final + 'px';
+          }
+        }catch(e){}
+      }, { passive: true });
     });
+
+    bar.appendChild(groupsBtn);
   }
-
-  function showTotalesModal(){
-    buildTotalesTCRList();
-    if(modal){
-      modal.style.display = 'block';
-      modal.setAttribute('aria-hidden','false');
-    }
-  }
-
-  function hideTotalesModal(){
-    if(modal){
-      modal.style.display = 'none';
-      modal.setAttribute('aria-hidden','true');
-    }
-  }
-
-  if(totalesBtn){
-    totalesBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      showTotalesModal();
-    });
-  }
-
-  if(closeBtn){
-    closeBtn.addEventListener('click', hideTotalesModal);
-  }
-
-  window.addEventListener('click', (e) => {
-    if(e.target === modal){
-      hideTotalesModal();
-    }
-  });
-
-  // Rebuild list when accounts change by wrapping saveToLocalStorage to also update view
-  const originalSave = saveToLocalStorage;
-  window.saveToLocalStorage = function(){
-    originalSave();
-    // if modal open, refresh content
-    if(modal && modal.style.display === 'block'){
-      buildTotalesTCRList();
-    }
-  };
-})();
-
-function generateExcelReport() {
-  // Create workbook
-  const wb = XLSX.utils.book_new();
-
-  // Generate sheets for sales data
-  const salesSheet = generateSalesSheet();
-  XLSX.utils.book_append_sheet(wb, salesSheet, "Ventas");
-
-  // Generate sheets for each hairdresser
-  const hairdressers = ['ALDO', 'MARCOS', 'OTRO'];
-  hairdressers.forEach(hairdresser => {
-    const totalsSheet = generateHairdresserTotalsSheet(hairdresser);
-    XLSX.utils.book_append_sheet(wb, totalsSheet, `Totales ${hairdresser}`);
-    
-    const weeklySheet = generateHairdresserWeeklySheet(hairdresser);
-    XLSX.utils.book_append_sheet(wb, weeklySheet, `Semanas ${hairdresser}`);
-  });
-
-  // Generate summary sheet
-  const summarySheet = generateSummarySheet();
-  XLSX.utils.book_append_sheet(wb, summarySheet, "Resumen");
-
-  // Save the file
-  const date = new Date().toISOString().split('T')[0];
-  XLSX.writeFile(wb, `reporte_figaro_${date}.xlsx`);
 }
 
-function generateSalesSheet() {
-  // Prepare sales data (round numeric values to integers) and include related boleta number if present
-  const salesData = salonSales.map(sale => {
-    // Determine date key used for boleta storage (ISO yyyy-mm-dd)
-    const saleDateKey = new Date(sale.date).toISOString().split('T')[0];
-
-    // Determine boleta type key: 'efectivo' for cash, 'tarjeta' for card payments
-    const boletaType = (sale.paymentType === 'efectivo') ? 'efectivo' : 'tarjeta';
-
-    // Hairdresser key stored in boletas is lowercase (e.g., 'aldo', 'marcos', 'otro')
-    const hairdresserKey = sale.hairdresser ? sale.hairdresser.toLowerCase() : '';
-
-    // Compose lookup key used in salesBoletas storage
-    const boletaKey = `${hairdresserKey}_${saleDateKey}_${boletaType}`;
-
-    // Lookup boleta number (may be undefined)
-    const boletaNumber = salesBoletas[boletaKey] || '';
-
-    return {
-      'Semana': `Semana ${sale.week}`,
-      'Fecha': formatDate(sale.date),
-      'Peluquero': sale.hairdresser,
-      'Código': sale.serviceCode,
-      'Monto': Math.round(Number(sale.amount || 0)),
-      'Tipo Pago': sale.paymentType.toUpperCase(),
-      'Comisión': Math.round(Number(sale.commission || 0)),
-      'Comisión + IVA': Math.round(Number(sale.commissionWithIVA || 0)),
-      'Monto Neto': Math.round(Number(sale.netAmount || 0)),
-      'Fecha Abono': sale.paymentDate ? formatDate(sale.paymentDate) : '',
-      'Pagado': sale.paid ? 'Sí' : 'No',
-      'Boleta': boletaNumber
-    };
-  });
-
-  return XLSX.utils.json_to_sheet(salesData);
-}
-
-function generateHairdresserTotalsSheet(hairdresser) {
-  const sales = salonSales.filter(sale => sale.hairdresser === hairdresser);
-  const config = hairdresserCommissions[hairdresser.toLowerCase()];
-  
-  const totalVentas = sales.reduce((sum, sale) => sum + sale.amount, 0);
-  const totalTarjeta = sales.filter(sale => 
-    sale.paymentType === 'debito' || sale.paymentType === 'credito'
-  ).reduce((sum, sale) => sum + sale.amount, 0);
-  
-  const totalPorc = sales.reduce((sum, sale) => {
-    const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-      sale.amount * (config.rec / 100) : 0;
-    const comAmount = sale.amount * (config.com / 100);
-    return sum + (recAmount + comAmount);
-  }, 0);
-  
-  const retencion = totalVentas * (config.ret / 100);
-  const liquido = totalVentas - totalPorc;
-
-  // Round all numeric values to integers for the report
-  const data = [
-    ['Concepto', 'Monto'],
-    ['TF Ventas', Math.round(totalVentas)],
-    ['TF Venta Tarjeta', Math.round(totalTarjeta)],
-    ['TF Porc.', Math.round(totalPorc)],
-    ['Retención', Math.round(retencion)],
-    ['Líquido', Math.round(liquido)]
-  ];
-
-  return XLSX.utils.aoa_to_sheet(data);
-}
-
-function generateHairdresserWeeklySheet(hairdresser) {
-  const weeks = [1, 2, 3, 4, 5];
-  const weeklyData = weeks.map(week => {
-    const weekSales = salonSales.filter(sale => 
-      sale.hairdresser === hairdresser && sale.week === week
-    );
-    
-    if (weekSales.length === 0) return null;
-
-    const totalVentas = weekSales.reduce((sum, sale) => sum + sale.amount, 0);
-    const totalTarjeta = weekSales.filter(sale => 
-      sale.paymentType === 'debito' || sale.paymentType === 'credito'
-    ).reduce((sum, sale) => sum + sale.amount, 0);
-    
-    const config = hairdresserCommissions[hairdresser.toLowerCase()];
-    const totalPorc = weekSales.reduce((sum, sale) => {
-      const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-        sale.amount * (config.rec / 100) : 0;
-      const comAmount = sale.amount * (config.com / 100);
-      return sum + (recAmount + comAmount);
-    }, 0);
-
-    return {
-      'Semana': `Semana ${week}`,
-      'Total Ventas': Math.round(totalVentas),
-      'Total Venta Tarjeta': Math.round(totalTarjeta),
-      'Total Porc.': Math.round(totalPorc),
-      'Diferencia': Math.round(totalTarjeta - totalPorc)
-    };
-  }).filter(data => data !== null);
-
-  return XLSX.utils.json_to_sheet(weeklyData);
-}
-
-function generateSummarySheet() {
-  // Calculate general totals and round values to integers for report
-  const totalVentas = salonSales.reduce((sum, sale) => sum + sale.amount, 0);
-  const totalTarjeta = salonSales.filter(sale => 
-    sale.paymentType === 'debito' || sale.paymentType === 'credito'
-  ).reduce((sum, sale) => sum + sale.amount, 0);
-  
-  const totalPorc = salonSales.reduce((sum, sale) => {
-    const config = hairdresserCommissions[sale.hairdresser.toLowerCase()];
-    const recAmount = (sale.paymentType === 'debito' || sale.paymentType === 'credito') ?
-      sale.amount * (config.rec / 100) : 0;
-    const comAmount = sale.amount * (config.com / 100);
-    return sum + (recAmount + comAmount);
-  }, 0);
-
-  const uniqueDays = new Set(salonSales.map(sale => 
-    new Date(sale.date).toISOString().split('T')[0]
-  ));
-  const promPorcDia = uniqueDays.size > 0 ? totalPorc / uniqueDays.size : 0;
-
-  const data = [
-    ['Concepto', 'Monto'],
-    ['TF Ventas', Math.round(totalVentas)],
-    ['TF Venta Tarjeta', Math.round(totalTarjeta)],
-    ['TF Porc.', Math.round(totalPorc)],
-    ['Prom. Porc. Día', Math.round(promPorcDia)],
-    ['Días Trabajados', uniqueDays.size],
-    ['Meta Mes', Math.round(figaroIndicators.metaMes || 0)],
-    ['Días Hábiles Mes', Math.round(figaroIndicators.diasHabilesMes || 0)]
-  ];
-
-  return XLSX.utils.aoa_to_sheet(data);
-}
-
-// Add event listener for the report button
-document.addEventListener('DOMContentLoaded', () => {
-  const reportButton = document.querySelector('.figaro-year-btn');
-  reportButton.addEventListener('click', generateExcelReport);
+/* Toggle activity mode */
+actividadBtn.addEventListener('click', () => {
+  activityMode = true;
+  // visually indicate active state
+  actividadBtn.classList.toggle('active', activityMode);
+  if(registroBtn) registroBtn.classList.toggle('active', !activityMode);
+  updateOptionsBar();
+  render(searchInput.value);
 });
 
-// -----------------------------------------------------------
-// Google Identity Services + Drive backup integration
-// -----------------------------------------------------------
-
-// Client ID provided (must be used exactly as requested)
-const GOOGLE_CLIENT_ID = "414250903378-8f1nmeemkv7jdo6nhr1mveaam3jcvumc.apps.googleusercontent.com";
-
-// Drive token client and token storage
-let driveTokenClient;
-let driveAccessToken = null;
-let currentGoogleUser = null;
-
- // Initialize Google Identity and Token client once GSI script loads
- window.addEventListener('load', () => {
-   try {
-     // Initialize One Tap / Sign-In button rendering
-     if (window.google && google.accounts && google.accounts.id) {
-       google.accounts.id.initialize({
-         client_id: GOOGLE_CLIENT_ID,
-         callback: handleCredentialResponse
-       });
-
-       // Render standard button (text=continue_with shows "Continuar con Google"-like)
-       google.accounts.id.renderButton(
-         document.getElementById("googleSignInButton"),
-         { theme: "outline", size: "large", text: "continue_with" }
-       );
-     }
-
-     // Initialize token client for Drive (requesting drive.file scope)
-     if (window.google && google.accounts && google.accounts.oauth2) {
-       driveTokenClient = google.accounts.oauth2.initTokenClient({
-         client_id: GOOGLE_CLIENT_ID,
-         scope: 'https://www.googleapis.com/auth/drive.file',
-         callback: (tokenResponse) => {
-           // tokenResponse contains access_token (or error)
-           if (tokenResponse && tokenResponse.access_token) {
-             driveAccessToken = tokenResponse.access_token;
-             try { localStorage.setItem('drive_access_token', driveAccessToken); } catch(e){/*ignore*/}
-             console.log('Drive access token obtenido');
-           } else {
-             console.error('No se obtuvo access_token de Drive', tokenResponse);
-           }
-         }
-       });
-     }
-
-     // Wire up UI buttons
-     const saveBtn = document.getElementById('saveToDriveBtn');
-     const loadBtn = document.getElementById('loadFromDriveBtn');
-     if (saveBtn) saveBtn.addEventListener('click', saveBackupToDrive);
-     if (loadBtn) loadBtn.addEventListener('click', loadLatestBackupFromDrive);
-
-     // If we have a stored JWT, restore user session without requiring re-login
-     try {
-       const storedJwt = localStorage.getItem('google_jwt');
-       if (storedJwt && storedJwt.length > 10) {
-         const payload = JSON.parse(atob(storedJwt.split('.')[1]));
-         const name = payload.name || payload['given_name'] || '';
-         const email = payload.email || '';
-         const picture = payload.picture || '';
-         onGoogleUserLoggedIn({ name, email, picture });
-       }
-       // restore driveAccessToken if previously saved (note: tokens may expire)
-       const storedDriveToken = localStorage.getItem('drive_access_token');
-       if (storedDriveToken) {
-         driveAccessToken = storedDriveToken;
-       }
-
-       // Restore and show last backup filename if available
-       try {
-         const lastName = localStorage.getItem('last_backup_name');
-         if (lastName) {
-           const el = document.getElementById('lastBackupName');
-           if (el) el.textContent = lastName;
-         }
-       } catch(e){ /* ignore */ }
-     } catch (err) {
-       // ignore restore errors
-       console.warn('No se pudo restaurar sesión Google desde localStorage:', err);
-     }
-   } catch (err) {
-     console.error('Error inicializando Google Identity:', err);
-   }
- });
-
- // Handle credential response from google.accounts.id (JWT)
- function handleCredentialResponse(response) {
-   try {
-     const jwt = response.credential;
-     // Persist JWT so session can survive refresh
-     try { localStorage.setItem('google_jwt', jwt); } catch(e){/* ignore */ }
-     // Decode payload (JWT format: header.payload.signature)
-     const payload = JSON.parse(atob(jwt.split('.')[1]));
-     const name = payload.name || payload['given_name'] || '';
-     const email = payload.email || '';
-     const picture = payload.picture || '';
-     const userData = { name, email, picture };
-     onGoogleUserLoggedIn(userData);
-   } catch (err) {
-     console.error('Error procesando credential response:', err);
-   }
- }
-
- // Called when user is authenticated via Google Sign-In button
- function onGoogleUserLoggedIn(userData) {
-   console.log('Usuario Google autenticado:', userData);
-   // Persist user data so session survives sleep/background
-   try { localStorage.setItem('googleUser', JSON.stringify(userData)); } catch (e) { /* ignore */ }
-   window.currentGoogleUser = userData;
-   currentGoogleUser = userData;
-   // Hide Google sign-in button and show info + "Cerrar sesión" button
-   const btn = document.getElementById('googleSignInButton');
-   const info = document.getElementById('googleUserInfo');
-   const signOutBtn = document.getElementById('googleSignOutBtn');
-   if (btn) btn.style.display = 'none';
-   if (info) {
-     info.style.display = 'block';
-     info.textContent = `Sesión iniciada como ${userData.name} (${userData.email})`;
-   }
-   if (signOutBtn) {
-     signOutBtn.style.display = 'inline-block';
-     signOutBtn.textContent = 'Cerrar sesión';
-     signOutBtn.onclick = () => {
-       // Disable auto-select, clear local storage and tokens, reload to initial state
-       try {
-         if (google && google.accounts && google.accounts.id && google.accounts.id.disableAutoSelect) {
-           google.accounts.id.disableAutoSelect();
-         }
-       } catch (err) { /* ignore */ }
-       try { localStorage.removeItem('googleUser'); } catch(e){/*ignore*/}
-       try { localStorage.removeItem('google_jwt'); } catch(e){/*ignore*/}
-       try { localStorage.removeItem('drive_access_token'); } catch(e){/*ignore*/}
-       driveAccessToken = null;
-       currentGoogleUser = null;
-       window.currentGoogleUser = null;
-       // force reload to clear any UI state and re-render sign-in
-       location.reload();
-     };
-   }
-
-   // Request Drive access token (consent prompt first time)
-   requestDriveToken(true).then(() => {
-     // Token obtained; do NOT auto-load backups from Drive on page refresh or sign-in.
-     console.log('Drive token obtenido; carga de respaldos desde Drive se realizará solo con el botón "Cargar".');
-   }).catch(err => {
-     console.warn('No se obtuvo token de Drive:', err);
-   });
- }
-
-// Request (or ensure) driveAccessToken; if promptConsent true use prompt:'consent'
-// We expose a helper ensureValidToken() that attempts silent renewal and validates token.
-function requestDriveToken(promptConsent = false) {
-  return new Promise((resolve, reject) => {
-    if (!driveTokenClient) {
-      return reject(new Error('driveTokenClient no está inicializado'));
-    }
-    // If we already have a token, resolve immediately
-    if (driveAccessToken) return resolve(driveAccessToken);
-
-    try {
-      // The token client uses callback style; wrap it to set driveAccessToken via callback
-      driveTokenClient.requestAccessToken({
-        prompt: promptConsent ? 'consent' : ''
-      });
-      // Poll until token is set by the token client callback
-      const checkInterval = setInterval(() => {
-        if (driveAccessToken) {
-          clearInterval(checkInterval);
-          resolve(driveAccessToken);
-        }
-      }, 200);
-
-      setTimeout(() => {
-        if (!driveAccessToken) {
-          clearInterval(checkInterval);
-          reject(new Error('Timeout esperando access token de Drive'));
-        }
-      }, 20000);
-    } catch (err) {
-      reject(err);
-    }
+/* Show registry (general) view when "Registro" pressed */
+if(registroBtn){
+  registroBtn.addEventListener('click', () => {
+    activityMode = false;
+    registroBtn.classList.toggle('active', !activityMode);
+    if(actividadBtn) actividadBtn.classList.toggle('active', activityMode);
+    updateOptionsBar();
+    render(searchInput.value);
   });
 }
 
-// Ensure we have a valid driveAccessToken, try silent renewal and test token; recursive on expiry
-async function ensureValidToken() {
-  // Try to obtain token silently if none
-  if (!driveAccessToken) {
-    return new Promise((resolve, reject) => {
-      if (!driveTokenClient) return reject(new Error('driveTokenClient no está inicializado'));
-      try {
-        // requestAccessToken with empty prompt to attempt silent renewal
-        driveTokenClient.requestAccessToken({ prompt: '' });
-        const waitInterval = setInterval(() => {
-          if (driveAccessToken) {
-            clearInterval(waitInterval);
-            try { localStorage.setItem('drive_access_token', driveAccessToken); } catch(e){/*ignore*/}
-            console.log('Token renovado automáticamente');
-            resolve();
-          }
-        }, 200);
-        setTimeout(() => {
-          if (!driveAccessToken) {
-            clearInterval(waitInterval);
-            reject(new Error('Timeout esperando token silencioso'));
-          }
-        }, 20000);
-      } catch (err) {
-        reject(err);
-      }
-    });
+
+
+/* Export registry to a .json file */
+exportBtn.addEventListener('click', (ev) => {
+  // hide menu after action if visible
+  if(backupMenu && !backupMenu.classList.contains('hidden')){
+    backupMenu.classList.add('hidden');
+    if(backupBtn) backupBtn.setAttribute('aria-expanded','false');
   }
-
-  // If we have a token, test it with a light request
-  try {
-    const test = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
-      headers: { 'Authorization': 'Bearer ' + driveAccessToken }
-    });
-    if (test.status === 401) {
-      console.log('Token expiró, renovando...');
-      driveAccessToken = null;
-      try { localStorage.removeItem('drive_access_token'); } catch(e){/*ignore*/}
-      return ensureValidToken();
-    }
-    // token valid
-    return;
-  } catch (e) {
-    // network or other error, attempt renewal
-    driveAccessToken = null;
-    try { localStorage.removeItem('drive_access_token'); } catch(e){/*ignore*/}
-    return ensureValidToken();
-  }
-}
-
-// Build the app state to backup (adaptable; currently includes main structures)
-function getAppState() {
-  // Return the key app state objects; adapt fields as your app evolves
-  return {
-    accounts,
-    transactions,
-    accountsOrder,
-    transactionsOrder,
-    salonSales,
-    commissionRates,
-    ivaRate,
-    salesBoletas,
-    figaroIndicators,
-    hairdresserCommissions
-  };
-}
-
-// Restore app state from loaded backup object (basic implementation)
-function restoreAppState(state) {
-  console.log('Restaurando estado desde respaldo:', state);
-  // NOTE: apply incoming state to app variables (this is a simple application; adapt with validation)
-  if (state.accounts) accounts = state.accounts;
-  if (state.transactions) transactions = state.transactions;
-  if (state.accountsOrder) accountsOrder = state.accountsOrder;
-  if (state.transactionsOrder) transactionsOrder = state.transactionsOrder;
-  if (state.salonSales) salonSales = state.salonSales;
-  if (state.commissionRates) commissionRates = state.commissionRates;
-  if (typeof state.ivaRate !== 'undefined') ivaRate = state.ivaRate;
-  if (state.salesBoletas) salesBoletas = state.salesBoletas;
-  if (state.figaroIndicators) figaroIndicators = state.figaroIndicators;
-  if (state.hairdresserCommissions) hairdresserCommissions = state.hairdresserCommissions;
-
-  // Refresh UI so it reflects restored data
-  try {
-    saveToLocalStorage();
-    saveSalonToLocalStorage();
-    updateAccountsList();
-    updateAccountSelectors();
-    updateTransactionsList();
-    updateSalonSalesDisplay();
-    updateHairdresserPanels();
-    updateFigaroSemanasPanel();
-    updateFigaroIndicatorsPanel();
-    updateTotalBalance();
-  } catch (err) {
-    console.warn('Error actualizando UI después de restaurar estado:', err);
-  }
-}
-
- // Save backup to Drive inside fixed folder ID; filename format: YYYY-MM-DD_HH.MM-finanzas.json
-async function saveBackupToDrive() {
-  try {
-    // Ensure logged in user
-    if (!currentGoogleUser && !window.currentGoogleUser) {
-      alert('Primero inicie sesión con Google para guardar el respaldo.');
-      return;
-    }
-
-    // Ensure we have a valid Drive access token (renew silently if needed)
-    try {
-      await ensureValidToken();
-    } catch (err) {
-      // If ensureValidToken failed, prompt consent once to allow save
-      console.warn('No se pudo renovar token silencioso, solicitando consentimiento...', err);
-      await requestDriveToken(true);
-    }
-
-    if (!driveAccessToken) {
-      alert('No se pudo obtener token de acceso para Google Drive.');
-      return;
-    }
-
-    const appState = getAppState();
-
-    // Build filename using local browser time
-    const now = new Date();
+  try{
+    const blob = new Blob([JSON.stringify(people, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // build filename: YYYY.MM.DD-HH.MM - RESPALDO REGISTRO.json
+    const _d = new Date();
     const pad = (n) => String(n).padStart(2, '0');
-    const YYYY = now.getFullYear();
-    const MM = pad(now.getMonth() + 1);
-    const DD = pad(now.getDate());
-    const hh = pad(now.getHours());
-    const mm = pad(now.getMinutes());
-    const fileName = `${YYYY}-${MM}-${DD}_${hh}.${mm}-finanzas.json`;
+    const fileName = `${_d.getFullYear()}.${pad(_d.getMonth() + 1)}.${pad(_d.getDate())}-${pad(_d.getHours())}.${pad(_d.getMinutes())} - RESPALDO REGISTRO.json`;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(err){
+    alert('Error al exportar: ' + (err && err.message ? err.message : err));
+  }
+});
 
-    const metadata = {
-      name: fileName,
-      mimeType: 'application/json',
-      parents: ['1nyPnBXUbMRuSBUNd45K7EN9OLkxbaMNO']
+/* Import registry from a .json file (replaces current registry) */
+importBtn.addEventListener('click', (ev) => {
+  // hide menu before opening file picker
+  if(backupMenu && !backupMenu.classList.contains('hidden')){
+    backupMenu.classList.add('hidden');
+    if(backupBtn) backupBtn.setAttribute('aria-expanded','false');
+  }
+  importFile.click();
+});
+importFile.addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const data = JSON.parse(reader.result);
+      if(!Array.isArray(data)) throw new Error('Formato inválido: se esperaba un arreglo de registros.');
+      // basic validation of record shape is skipped; we replace current data
+      people = data.map(p => {
+        if(!p.id) p.id = uid();
+        // keep activities structure if present, otherwise ensure blank
+        if(!p.activities) p.activities = {};
+        return p;
+      });
+      save();
+      render(searchInput.value);
+      alert('Importación completada.');
+    }catch(err){
+      alert('Error al importar: ' + (err && err.message ? err.message : err));
+    } finally {
+      importFile.value = '';
+    }
+  };
+  reader.onerror = () => {
+    alert('No se pudo leer el archivo.');
+    importFile.value = '';
+  };
+  reader.readAsText(f, 'utf-8');
+});
+
+/* CSV bulk load via modal "Cargar" button */
+if(loadBtn && csvFile){
+  loadBtn.addEventListener('click', (ev) => {
+    // open csv file picker
+    csvFile.click();
+  });
+
+  csvFile.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if(!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const text = reader.result;
+        // split lines, handle both \r\n and \n
+        const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+        if(lines.length < 1) throw new Error('CSV vacío o formato inválido.');
+
+        // parse header and map common header names to internal keys
+        const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+        // mapping common Spanish/English header names to internal keys
+        const alias = {
+          'nombre (cong.)':'congname','congname':'congname','nombrecong':'congname',
+          'nombre':'firstname','first name':'firstname','firstName':'firstname','first_name':'firstname',
+          'apellido paterno':'lastnamep','apellido_paterno':'lastnamep','last name p':'lastnamep','lastNameP':'lastnamep','last_name_p':'lastnamep',
+          'apellido materno':'lastnamem','apellido_materno':'lastnamem','last name m':'lastnamem','lastNameM':'lastnamem','last_name_m':'lastnamem',
+          'grupo':'group','group':'group',
+          'privilegio':'privilege','privilegio ':'privilege','privilege':'privilege',
+          'designación':'designation','designacion':'designation','designation':'designation',
+          'sexo':'sex','sex':'sex',
+          'esp':'esp',
+          'fecha nacimiento':'birthdate','fecha_nacimiento':'birthdate','birthdate':'birthdate','birth date':'birthdate',
+          'fecha bautismo':'baptismdate','fecha_bautismo':'baptismdate','baptismdate':'baptismdate',
+          'dirección':'address','direccion':'address','address':'address',
+          'teléfono':'phone','telefono':'phone','phone':'phone',
+          'contacto emergencia':'emergencycontact','contacto_emergencia':'emergencycontact','emergency contact':'emergencycontact'
+        };
+
+        // create header->key map
+        const headerMap = header.map(h => alias[h] || h.replace(/\s+/g,'').toLowerCase());
+
+        // parse rows
+        const newRecords = [];
+        for(let i=1;i<lines.length;i++){
+          const cols = lines[i].split(',').map(c => c.trim());
+          if(cols.length === 0) continue;
+          // build record object using headerMap
+          const rec = {
+            congName:'', firstName:'', lastNameP:'', lastNameM:'', group:'', privilege:'', designation:'',
+            sex:'', esp:'', birthDate:'', baptismDate:'', address:'', phone:'', emergencyContact:'', activities:{}
+          };
+          for(let j=0;j<headerMap.length && j<cols.length;j++){
+            const k = headerMap[j];
+            const v = cols[j];
+            if(!k) continue;
+            switch(k){
+              case 'congname': rec.congName = v; break;
+              case 'firstname': rec.firstName = v; break;
+              case 'lastnamep': rec.lastNameP = v; break;
+              case 'lastnamem': rec.lastNameM = v; break;
+              case 'group': rec.group = v; break;
+              case 'privilege': rec.privilege = v; break;
+              case 'designation': rec.designation = v; break;
+              case 'sex': rec.sex = v; break;
+              case 'esp': rec.esp = v; break;
+              case 'birthdate': rec.birthDate = normalizeDate(v); break;
+              case 'baptismdate': rec.baptismDate = normalizeDate(v); break;
+              case 'address': rec.address = v; break;
+              case 'phone': rec.phone = v; break;
+              case 'emergencycontact': rec.emergencyContact = v; break;
+              default:
+                // ignore unknown columns
+                break;
+            }
+          }
+          // minimal validation: require firstName and lastNameP; if missing, skip but continue
+          if(!rec.firstName && !rec.lastNameP && !rec.congName) {
+            // skip empty row
+            continue;
+          }
+          // ensure required fields: if congnName missing, synthesize from names
+          if(!rec.congName){
+            const combined = `${rec.firstName || ''} ${rec.lastNameP || ''}`.trim();
+            rec.congName = combined;
+          }
+          newRecords.push({ id: uid(), ...rec });
+        }
+
+        if(newRecords.length === 0) throw new Error('No se encontraron registros válidos en el CSV.');
+
+        // append to existing people list
+        people = people.concat(newRecords);
+        save();
+        render(searchInput.value);
+        alert(`Se agregaron ${newRecords.length} registros desde CSV.`);
+      }catch(err){
+        alert('Error al procesar CSV: ' + (err && err.message ? err.message : err));
+      } finally {
+        csvFile.value = '';
+      }
     };
+    reader.onerror = () => {
+      alert('No se pudo leer el archivo CSV.');
+      csvFile.value = '';
+    };
+    reader.readAsText(f, 'utf-8');
+  });
+}
 
-    const blob = new Blob([JSON.stringify(appState, null, 2)], { type: 'application/json' });
-
-    const form = new FormData();
-    const metaBlob = new Blob([JSON.stringify(metadata)], { type: 'application/json' });
-    form.append('metadata', metaBlob);
-    form.append('file', blob);
-
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,parents,createdTime', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + driveAccessToken
-      },
-      body: form
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      console.error('Error al subir backup a Drive:', res.status, text);
-      alert('Error al guardar respaldo en Google Drive: ' + res.statusText);
-      return;
+/* Backup menu toggle: open/close the dropdown menu */
+if(backupBtn){
+  backupBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if(!backupMenu) return;
+    const open = !backupMenu.classList.contains('hidden');
+    if(open){
+      backupMenu.classList.add('hidden');
+      backupBtn.setAttribute('aria-expanded','false');
+    } else {
+      backupMenu.classList.remove('hidden');
+      backupBtn.setAttribute('aria-expanded','true');
     }
+  });
+  // close backup menu when clicking outside
+  document.addEventListener('click', (ev) => {
+    if(!backupMenu) return;
+    if(backupMenu.classList.contains('hidden')) return;
+    const path = ev.composedPath ? ev.composedPath() : (ev.path || []);
+    if(path && (path.indexOf(backupMenu) !== -1 || path.indexOf(backupBtn) !== -1)) return;
+    backupMenu.classList.add('hidden');
+    backupBtn.setAttribute('aria-expanded','false');
+  });
+}
 
-    const result = await res.json();
-    console.log('Respaldo guardado en Drive:', result);
+form.addEventListener('submit', e => {
+  e.preventDefault();
+  const id = personId.value;
+  const record = {
+    congName: $('#congName').value.trim(),
+    firstName: $('#firstName').value.trim(),
+    lastNameP: $('#lastNameP').value.trim(),
+    lastNameM: $('#lastNameM').value.trim(),
+    group: $('#group').value.trim(),
+    privilege: $('#privilege').value.trim(),
+    designation: $('#designation').value.trim(),
+    sex: $('#sex').value,
+    esp: $('#esp').value.trim(),
+    birthDate: $('#birthDate').value,
+    baptismDate: $('#baptismDate').value,
 
-    // Immediately restore the just-saved state locally and update the "Último respaldo cargado" indicator
-    try {
-      // Restore application state from the appState we just uploaded
-      restoreAppState(appState);
+    address: $('#address').value.trim(),
+    phone: $('#phone').value.trim(),
+    emergencyContact: $('#emergencyContact').value.trim(),
+    activities: {} // initialize activities container
+  };
 
-      // Persist and show the filename of the restored backup
-      try {
-        localStorage.setItem('last_backup_name', fileName);
-        const el = document.getElementById('lastBackupName');
-        if (el) el.textContent = fileName;
-      } catch (e) {
-        console.warn('No se pudo guardar/mostrar el nombre del respaldo:', e);
+  // If Privilegio is "Fuera" or "Inactivo", immediately clear the group number
+  if(String(record.privilege).trim() === 'Fuera' || String(record.privilege).trim() === 'Inactivo'){
+    record.group = '';
+  }
+
+  if(!record.firstName || !record.lastNameP){
+    // minimal inline validation
+    alert('Nombre y Apellido Paterno son obligatorios.');
+    return;
+  }
+
+  if(id){
+    const i = people.findIndex(p => p.id === id);
+    if(i !== -1){
+      // preserve existing activities when editing
+      const prev = people[i].activities || {};
+      people[i] = { id, ...record, activities: prev };
+    }
+  } else {
+    people.push({ id: uid(), ...record });
+  }
+  save();
+  render(searchInput.value);
+  close();
+});
+
+/* Delegated actions (edit/delete) and row selection */
+tbody.addEventListener('click', (e) => {
+  const target = e.target;
+  const tr = target.closest('tr');
+
+  // If click on activity controls, let their handlers run.
+  if (tr && tr.parentElement === tbody) {
+    if (
+      target.closest('.act-month') ||
+      target.closest('.act-aux') ||
+      target.closest('.act-hours') ||
+      target.closest('.act-studies') ||
+      target.closest('.act-comments')
+    ) {
+      // ignore for selection
+    } else {
+      // If not activityMode and clicked specifically on the cong-cell, show profile popup
+      if (!activityMode && target.closest('.cong-cell')) {
+        const id = tr.dataset.id;
+        const p = people.find(x => x.id === id);
+        if (p) showProfilePopup(p);
+        return;
       }
 
-      // Also persist that we used this backup (for consistency)
-      saveToLocalStorage();
-      saveSalonToLocalStorage();
+      // Manage selection for rows
+      const prev = tbody.querySelector('tr.selected');
+      if (prev && prev !== tr) prev.classList.remove('selected');
+      const becameSelected = tr && !tr.classList.contains('selected');
+      tbody.querySelectorAll('tr.selected').forEach(r => r.classList.remove('selected'));
+      if (becameSelected && tr) {
+        tr.classList.add('selected');
+        selectedId = tr.dataset.id || null;
+      } else {
+        selectedId = null;
+      }
 
-      alert(`Respaldo guardado y cargado correctamente como "${result.name}"`);
-    } catch (restoreErr) {
-      console.error('Error restaurando respaldo localmente después de guardar:', restoreErr);
-      alert(`Respaldo guardado en Drive como "${result.name}", pero ocurrió un error al cargarlo localmente.`);
+      updateOptionsBar();
+
+      if (activityMode && becameSelected) {
+        const id = tr.dataset.id;
+        const p = people.find(x => x.id === id);
+        if (p) {
+          const q = (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim();
+          searchInput.value = q;
+          render(searchInput.value);
+          updateOptionsBar();
+        }
+      }
     }
-  } catch (err) {
-    console.error('Excepción guardando respaldo en Drive:', err);
-    alert('Ocurrió un error al guardar respaldo en Drive: ' + (err.message || err));
+  }
+
+  // handle edit/delete buttons if present (registry view)
+  if(target.matches('button.edit')){
+    const id = target.dataset.id;
+    const p = people.find(x => x.id === id);
+    if(p) openModal('edit', p);
+  } else if(target.matches('button.delete')){
+    const id = target.dataset.id;
+    if(confirm('¿Eliminar registro?')) {
+      people = people.filter(x => x.id !== id);
+      save();
+      render(searchInput.value);
+    }
+  }
+});
+
+/* Double-click to edit: inline editing in Registro; keep modal edit in Activity mode */
+tbody.addEventListener('dblclick', (e) => {
+  const td = e.target.closest('td');
+  if(!td) return;
+  const tr = td.parentElement;
+  if(!tr || tr.parentElement !== tbody) return;
+  const id = tr.dataset.id;
+  if(!id) return;
+  const pIndex = people.findIndex(x => x.id === id);
+  if(pIndex === -1) return;
+  const person = people[pIndex];
+
+  // In activity mode, keep existing behavior: double-click on cong-cell opens modal
+  if(activityMode){
+    if(td.classList.contains('cong-cell')){
+      openModal('edit', person);
+    }
+    return;
+  }
+
+  // Registry mode: inline edit the whole row
+  // Prevent re-initializing if already editing
+  if(tr.classList.contains('inline-editing')) return;
+  tr.classList.add('inline-editing');
+
+  // Map visible cells in registry row to fields in COLUMN_KEYS (same order)
+  const cells = Array.from(tr.children);
+  const inputs = [];
+
+  COLUMN_KEYS.forEach((key, idx) => {
+    const cell = cells[idx];
+    if(!cell) return;
+    // capture current value for this field
+    const current = person[key] || '';
+
+    // create appropriate editor (text, textarea, select, date)
+    let editor;
+    if(key === 'address'){
+      editor = document.createElement('textarea');
+      editor.rows = 2;
+      editor.style.width = '100%';
+      editor.value = current;
+    } else if(key === 'birthDate' || key === 'baptismDate'){
+      editor = document.createElement('input');
+      editor.type = 'date';
+      editor.value = current || '';
+    } else if(key === 'privilege'){
+      editor = document.createElement('select');
+      ['','Publicador','Anciano','Siervo Ministerial','Fuera','Inactivo'].forEach(v => {
+        const o = document.createElement('option'); o.value = v; o.textContent = v || '-';
+        if(String(v) === String(current)) o.selected = true;
+        editor.appendChild(o);
+      });
+    } else if(key === 'designation'){
+      editor = document.createElement('select');
+      ['','Precursor Regular','Precursor Auxiliar','No Asignar','No Bautizado','N/A'].forEach(v => {
+        const o = document.createElement('option'); o.value = v; o.textContent = v || '-';
+        if(String(v) === String(current)) o.selected = true;
+        editor.appendChild(o);
+      });
+    } else if(key === 'sex'){
+      editor = document.createElement('select');
+      ['','H','M'].forEach(v => {
+        const o = document.createElement('option'); o.value = v; o.textContent = v || '-';
+        if(String(v) === String(current)) o.selected = true;
+        editor.appendChild(o);
+      });
+    } else if(key === 'esp'){
+      editor = document.createElement('select');
+      ['','O.O.','UNG'].forEach(v => {
+        const o = document.createElement('option'); o.value = v; o.textContent = v || '-';
+        if(String(v) === String(current)) o.selected = true;
+        editor.appendChild(o);
+      });
+    } else {
+      editor = document.createElement('input');
+      editor.type = 'text';
+      editor.value = current;
+    }
+
+    editor.style.boxSizing = 'border-box';
+    editor.style.padding = '6px';
+    editor.style.borderRadius = '6px';
+    editor.style.border = '1px solid #e6e9ee';
+    editor.style.width = '100%';
+    // replace cell content with editor
+    cell.innerHTML = '';
+    cell.appendChild(editor);
+    inputs.push({ key, editor, cell });
+  });
+
+  // Add small action cell to commit/cancel (append to end of row)
+  const actionCell = document.createElement('td');
+  actionCell.style.whiteSpace = 'nowrap';
+  actionCell.style.padding = '8px';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'primary';
+  saveBtn.textContent = 'Guardar';
+  saveBtn.style.marginRight = '8px';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancelar';
+  actionCell.appendChild(saveBtn);
+  actionCell.appendChild(cancelBtn);
+  tr.appendChild(actionCell);
+
+  // Helper to commit changes
+  function commit(){
+    // read values and update person
+    const updated = { ...person }; // shallow copy
+    inputs.forEach(({ key, editor }) => {
+      if(!editor) return;
+      let val;
+      if(editor.tagName === 'INPUT' || editor.tagName === 'TEXTAREA' || editor.tagName === 'SELECT'){
+        val = editor.value;
+      } else {
+        val = editor.textContent;
+      }
+      updated[key] = val === null ? '' : String(val).trim();
+    });
+
+    // If Privilegio was set to "Fuera" or "Inactivo" inline, clear the group immediately
+    if(String(updated.privilege).trim() === 'Fuera' || String(updated.privilege).trim() === 'Inactivo'){
+      updated.group = '';
+    }
+
+    // preserve activities
+    updated.activities = person.activities || {};
+    people[pIndex] = { id, ...updated };
+    save();
+    // remove inline editors and re-render to refresh table
+    tr.classList.remove('inline-editing');
+    render(searchInput.value);
+    updateOptionsBar();
+  }
+
+  // Helper to cancel editing and restore original row (re-render)
+  function cancel(){
+    tr.classList.remove('inline-editing');
+    render(searchInput.value);
+    updateOptionsBar();
+  }
+
+  // Bind save/cancel
+  saveBtn.addEventListener('click', (ev) => { ev.stopPropagation(); commit(); });
+  cancelBtn.addEventListener('click', (ev) => { ev.stopPropagation(); cancel(); });
+
+  // Save on Enter when inside an input (but let Enter in textarea create newline)
+  inputs.forEach(({ editor }) => {
+    if(!editor) return;
+    editor.addEventListener('keydown', (ev) => {
+      if(ev.key === 'Enter' && editor.tagName !== 'TEXTAREA'){
+        ev.preventDefault();
+        commit();
+      } else if(ev.key === 'Escape'){
+        ev.preventDefault();
+        cancel();
+      }
+    });
+    // Removed automatic blur commit to avoid premature closing of the inline editor;
+    // user must now explicitly click "Guardar" or press Enter to save, or "Cancelar"/Escape to cancel.
+  });
+
+  // focus first editor
+  if(inputs[0] && inputs[0].editor) inputs[0].editor.focus();
+});
+
+/* Search */
+searchInput.addEventListener('input', (e) => {
+  render(e.target.value);
+  // update options bar so range controls appear/disappear when searching
+  updateOptionsBar();
+});
+
+// clear-search (red X) button: clears the search box and refreshes view
+if(clearSearchBtn){
+  clearSearchBtn.addEventListener('click', () => {
+    searchInput.value = '';
+
+    // If in activity mode, also deselect all persons in the visible list
+    if(activityMode){
+      // remove selected class from any rows and clear stored selection id
+      document.querySelectorAll('#tbody tr.selected').forEach(r => r.classList.remove('selected'));
+      selectedId = null;
+      // also reset activity range selection so UI matches empty search
+      activityRangeActive = false;
+      activityRangeFrom = null;
+      activityRangeTo = null;
+    }
+
+    render('');
+    updateOptionsBar();
+    searchInput.focus();
+  });
+}
+
+/* Keyboard: Esc closes modal */
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+});
+
+/* Column resizing: attach resizers to headers and adjust <col> widths */
+function initResizableColumns(){
+  const table = document.getElementById('peopleTable');
+  const cols = document.getElementById('cols');
+  if(!table || !cols) return;
+
+  const ths = table.querySelectorAll('thead th');
+  // ensure number of cols matches headers
+  while(cols.children.length < ths.length){
+    cols.appendChild(document.createElement('col'));
+  }
+
+  // restore saved widths if any
+  const saved = loadColWidths();
+  if(saved && saved.length){
+    for(let i=0;i<cols.children.length && i<saved.length;i++){
+      if(saved[i]) cols.children[i].style.width = saved[i];
+    }
+  }
+
+  ths.forEach((th, idx) => {
+    th.style.position = 'relative';
+    const handle = document.createElement('div');
+    handle.className = 'th-resizer';
+    handle.setAttribute('data-index', idx);
+    th.appendChild(handle);
+
+    let startX = 0;
+    let startWidth = 0;
+    let colEl = cols.children[idx];
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      startX = e.clientX;
+      startWidth = colEl.getBoundingClientRect().width;
+      document.documentElement.style.cursor = 'col-resize';
+
+      function onPointerMove(ev){
+        const dx = ev.clientX - startX;
+        const newWidth = Math.max(40, startWidth + dx);
+        colEl.style.width = newWidth + 'px';
+      }
+      function onPointerUp(ev){
+        document.removeEventListener('pointermove', onPointerMove);
+        document.removeEventListener('pointerup', onPointerUp);
+        document.documentElement.style.cursor = '';
+        try{ handle.releasePointerCapture(e.pointerId); }catch(_){}
+        // persist widths after finishing resize
+        saveColWidths();
+      }
+
+      document.addEventListener('pointermove', onPointerMove);
+      document.addEventListener('pointerup', onPointerUp);
+    });
+  });
+
+  // also save widths when window is resized (to capture final layout)
+  window.addEventListener('resize', () => {
+    // small debounce
+    clearTimeout(window._saveColsTimeout);
+    window._saveColsTimeout = setTimeout(saveColWidths, 200);
+  });
+}
+
+/* Sort helpers for activity view */
+function sortActivityByColumn(idx){
+  // columns in activity view:
+  // 0: congName
+  // 1: month (YYYY-MM)
+  // 2: group
+  // 3: privilege
+  // 4: designation
+  // 5: aux (boolean)
+  // 6: hours (integer)
+  // 7: studies (integer)
+  // 8: comments (string)
+  if(typeof idx !== 'number') return;
+  // toggle sort state; reuse same sortState structure but treat idx in activity context
+  if(sortState.idx === ('a'+idx)) {
+    sortState.dir = -sortState.dir;
+  } else {
+    sortState.idx = 'a'+idx;
+    sortState.dir = 1;
+  }
+
+  const dir = sortState.dir;
+  people.sort((A,B) => {
+    // ensure activities initialisation
+    const aKey = (A.activities && A.activities._lastMonth) ? A.activities._lastMonth : new Date().toISOString().slice(0,7);
+    const bKey = (B.activities && B.activities._lastMonth) ? B.activities._lastMonth : new Date().toISOString().slice(0,7);
+
+    const aAct = (A.activities && A.activities[aKey]) ? A.activities[aKey] : { aux:false, hours:'', studies:'', comments:'' };
+    const bAct = (B.activities && B.activities[bKey]) ? B.activities[bKey] : { aux:false, hours:'', studies:'', comments:'' };
+
+    // value extractors
+    let va, vb;
+    switch(idx){
+      case 0: // congName only
+        va = (A.congName || '').toLowerCase();
+        vb = (B.congName || '').toLowerCase();
+        break;
+      case 1: // month: compare as YYYY-MM strings (lexicographic works) but fall back to current month
+        va = (aKey || '').toLowerCase();
+        vb = (bKey || '').toLowerCase();
+        break;
+      case 2: // group
+        va = (A.group || '').toLowerCase();
+        vb = (B.group || '').toLowerCase();
+        break;
+      case 3: // privilege
+        va = (A.privilege || '').toLowerCase();
+        vb = (B.privilege || '').toLowerCase();
+        break;
+      case 4: // designation
+        va = (A.designation || '').toLowerCase();
+        vb = (B.designation || '').toLowerCase();
+        break;
+      case 5: // aux boolean
+        va = aAct.aux ? 1 : 0;
+        vb = bAct.aux ? 1 : 0;
+        break;
+      case 6: // hours integer (empty -> -1 to push empty last)
+        va = aAct.hours === '' ? -1 : parseInt(aAct.hours,10) || 0;
+        vb = bAct.hours === '' ? -1 : parseInt(bAct.hours,10) || 0;
+        break;
+      case 7: // studies integer
+        va = aAct.studies === '' ? -1 : parseInt(aAct.studies,10) || 0;
+        vb = bAct.studies === '' ? -1 : parseInt(bAct.studies,10) || 0;
+        break;
+      case 8: // comments
+        va = (aAct.comments || '').toLowerCase();
+        vb = (bAct.comments || '').toLowerCase();
+        break;
+      default:
+        va = '';
+        vb = '';
+    }
+
+    // numeric compare if numbers
+    if(typeof va === 'number' && typeof vb === 'number'){
+      if(va < vb) return -1 * dir;
+      if(va > vb) return 1 * dir;
+      return 0;
+    }
+
+    // string compare
+    if(va < vb) return -1 * dir;
+    if(va > vb) return 1 * dir;
+    return 0;
+  });
+
+  save();
+  render(searchInput.value);
+}
+
+/* make headers sortable by double-click (applies in both registry and activity views) */
+function initHeaderSorting(){
+  const ths = document.querySelectorAll('#peopleTable thead th');
+  ths.forEach((th, idx) => {
+    th.addEventListener('dblclick', () => {
+      // choose appropriate sort depending on mode
+      if(activityMode){
+        sortActivityByColumn(idx);
+      } else {
+        sortByColumn(idx);
+      }
+    });
+    // indicate interactivity
+    th.style.cursor = 'pointer';
+  });
+
+  // attach column filter button handlers (only present in registry headers)
+  const filters = document.querySelectorAll('.col-filter');
+
+  // helper to close any open filter panel
+  function closeFilterPanel(){
+    const open = document.querySelector('.filter-panel');
+    if(open) open.remove();
+    // remove document click listener
+    document.removeEventListener('click', closeFilterPanel);
+  }
+
+  filters.forEach(btn => {
+    const idx = Number(btn.getAttribute('data-idx'));
+    // choose correct key set depending on current view (render calls initHeaderSorting after setting activityMode)
+    const key = (activityMode ? ACT_COLUMN_KEYS[idx] : COLUMN_KEYS[idx]);
+
+    // pick the correct filters object for current view
+    const currentFilters = activityMode ? columnFiltersActivity : columnFiltersRegistry;
+
+    // reflect active state from currentFilters (support array or string)
+    const cf = currentFilters[key];
+    if(Array.isArray(cf) ? cf.length > 0 : !!cf) btn.classList.add('active'); else btn.classList.remove('active');
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // toggle panel if already open for this button
+      const existing = document.querySelector('.filter-panel');
+      if(existing && existing.dataset.idx === String(idx)){
+        closeFilterPanel();
+        return;
+      }
+      closeFilterPanel();
+
+      // gather unique values for this column from current people list
+      const vals = Array.from(new Set(people.map(p => (p[key] || '').toString()).filter(v=>v !== ''))).sort((a,b) => a.localeCompare(b,'es'));
+
+      // build panel
+      const panel = document.createElement('div');
+      panel.className = 'filter-panel';
+      panel.dataset.idx = idx;
+
+      const title = document.createElement('div');
+      title.className = 'filter-panel-title';
+      title.textContent = ths[idx].innerText.replace('🔍','').trim();
+      panel.appendChild(title);
+
+      const inputWrap = document.createElement('div');
+      inputWrap.className = 'filter-panel-inputwrap';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'Escriba para filtrar o seleccione varios valores';
+      // show comma-joined preview when multiple selected
+      if(Array.isArray(currentFilters[key])) input.value = currentFilters[key].join(', ');
+      else input.value = currentFilters[key] || '';
+      input.className = 'filter-panel-input';
+      inputWrap.appendChild(input);
+
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.className = 'filter-panel-clear';
+      clearBtn.textContent = 'Limpiar';
+      clearBtn.addEventListener('click', () => {
+        input.value = '';
+        // also clear any selection marks
+        Array.from(list.querySelectorAll('.filter-panel-item.selected')).forEach(it => it.classList.remove('selected'));
+        input.dispatchEvent(new Event('input'));
+      });
+      inputWrap.appendChild(clearBtn);
+
+      panel.appendChild(inputWrap);
+
+      const list = document.createElement('div');
+      list.className = 'filter-panel-list';
+      if(vals.length === 0){
+        const empty = document.createElement('div');
+        empty.className = 'filter-panel-empty';
+        empty.textContent = '(sin datos)';
+        list.appendChild(empty);
+      } else {
+        // allow multi-select: click toggles selection; Shift/Ctrl can be used but not required
+        vals.forEach(v => {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'filter-panel-item';
+          item.textContent = v;
+          // reflect previously selected values (if any)
+          const prev = currentFilters[key];
+          if(Array.isArray(prev) && prev.includes(v)) item.classList.add('selected');
+          // toggle selection on click
+          item.addEventListener('click', () => {
+            item.classList.toggle('selected');
+            // update input preview: show selected values comma separated, else the typed input
+            const sel = Array.from(list.querySelectorAll('.filter-panel-item.selected')).map(s => s.textContent);
+            input.value = sel.length ? sel.join(', ') : '';
+          });
+          list.appendChild(item);
+        });
+      }
+      panel.appendChild(list);
+
+      // actions
+      const actions = document.createElement('div');
+      actions.className = 'filter-panel-actions';
+      const apply = document.createElement('button');
+      apply.type = 'button';
+      apply.className = 'primary';
+      apply.textContent = 'Aplicar';
+      apply.addEventListener('click', applyFilter);
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.textContent = 'Cancelar';
+      cancel.addEventListener('click', closeFilterPanel);
+      actions.appendChild(cancel);
+      actions.appendChild(apply);
+      panel.appendChild(actions);
+
+      // position panel under button
+      document.body.appendChild(panel);
+      const rect = btn.getBoundingClientRect();
+      panel.style.position = 'absolute';
+      panel.style.left = (rect.left + window.scrollX) + 'px';
+      panel.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+      panel.style.zIndex = 9999;
+      // limit width
+      panel.style.minWidth = '220px';
+      panel.style.maxWidth = '420px';
+
+      // small live filter of list items
+      input.addEventListener('input', () => {
+        const q = input.value.trim().toLowerCase();
+        Array.from(list.children).forEach(ch => {
+          if(ch.classList.contains('filter-panel-empty')) return;
+          const matches = ch.textContent.toLowerCase().includes(q);
+          ch.style.display = matches ? '' : 'none';
+        });
+      });
+
+      // apply filter function (accepts multiple selected items or typed value)
+      function applyFilter(){
+        // collect selected items first
+        const selected = Array.from(list.querySelectorAll('.filter-panel-item.selected')).map(s => s.textContent.trim()).filter(Boolean);
+        if(selected.length){
+          currentFilters[key] = selected; // store as array
+          btn.classList.add('active');
+        } else {
+          // fallback to typed input (allow comma-separated typed values)
+          const typed = String(input.value || '').trim();
+          if(typed){
+            // split on commas and trim to allow users to type multiple values
+            const parts = typed.split(',').map(p => p.trim()).filter(Boolean);
+            currentFilters[key] = parts.length === 1 ? parts[0] : parts;
+            btn.classList.add('active');
+          } else {
+            delete currentFilters[key];
+            btn.classList.remove('active');
+          }
+        }
+        closeFilterPanel();
+        render(searchInput.value);
+      }
+
+      // add document click to close when clicking outside
+      setTimeout(()=> document.addEventListener('click', closeFilterPanel), 0);
+      // stop clicks inside panel from bubbling to document
+      panel.addEventListener('click', (ev) => ev.stopPropagation());
+      btn.focus();
+    });
+  });
+}
+
+/* Banner title: load persisted title or default */
+function loadBannerTitle(){
+  try{
+    const v = localStorage.getItem(BANNER_TITLE_KEY);
+    return v ? v : null;
+  }catch(e){ return null; }
+}
+function saveBannerTitle(val){
+  try{ localStorage.setItem(BANNER_TITLE_KEY, val); }catch(e){}
+}
+
+/* make banner title editable on double-click */
+const bannerTitleEl = document.querySelector('.banner-title');
+const defaultBannerText = bannerTitleEl ? bannerTitleEl.textContent : '';
+const persisted = loadBannerTitle();
+if(bannerTitleEl){
+  bannerTitleEl.textContent = persisted || defaultBannerText;
+
+  bannerTitleEl.addEventListener('dblclick', (e) => {
+    // create input overlay
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'banner-title-input';
+    input.value = bannerTitleEl.textContent;
+    // replace display with input
+    bannerTitleEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    function commit(){
+      const val = input.value.trim() || defaultBannerText;
+      const newEl = document.createElement('div');
+      newEl.className = 'banner-title';
+      newEl.textContent = val;
+      input.replaceWith(newEl);
+      saveBannerTitle(val);
+      // reattach handler to new element
+      newEl.addEventListener('dblclick', bannerTitleDbl);
+    }
+    function cancel(){
+      const newEl = document.createElement('div');
+      newEl.className = 'banner-title';
+      newEl.textContent = bannerTitleEl.textContent;
+      input.replaceWith(newEl);
+      newEl.addEventListener('dblclick', bannerTitleDbl);
+    }
+    function onKey(e){
+      if(e.key === 'Enter'){
+        commit();
+      } else if(e.key === 'Escape'){
+        cancel();
+      }
+    }
+    // helper to reattach
+    function bannerTitleDbl(ev){ /* no-op placeholder for later reattach */ }
+
+    input.addEventListener('blur', commit, { once: true });
+    input.addEventListener('keydown', onKey);
+  });
+}
+
+/* Render activity rows for a single service year (September–August) into popup.
+   A year label like 2026 represents Sept 2025 -> Aug 2026. */
+function renderActivityRowsFor(person, serviceYear){
+  const container = $('#pp_activityTable');
+  container.innerHTML = '';
+
+  // compute service year default if not provided: if current month >= September, serviceYear = thisYear+1 else thisYear
+  const now = new Date();
+  const defaultYear = (now.getMonth() >= 8) ? (now.getFullYear() + 1) : now.getFullYear();
+  serviceYear = serviceYear || defaultYear;
+
+  // helper: build months from (serviceYear-1)-09 to serviceYear-08 inclusive
+  function monthsForServiceYear(year){
+    const months = [];
+    const start = new Date(year - 1, 8, 1); // Sept of previous calendar year (month 8)
+    const end = new Date(year, 7, 1);       // Aug of serviceYear (month 7)
+    let cur = new Date(start);
+    while(cur.getFullYear() < end.getFullYear() || (cur.getFullYear() === end.getFullYear() && cur.getMonth() <= end.getMonth())){
+      const key = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;
+      months.push({ key, label: cur.toLocaleString('es', { month:'long', year:'numeric' }) });
+      cur.setMonth(cur.getMonth() + 1);
+      // safety cap
+      if(months.length > 36) break;
+    }
+    return months;
+  }
+
+  // header
+  const head = document.createElement('div');
+  head.className = 'pp-head';
+  head.innerHTML = `<div>Año / Mes</div><div>Participación</div><div>Cursos bíblicos</div><div>Precursor auxiliar</div><div>Horas</div><div>Notas</div>`;
+  container.appendChild(head);
+
+  const months = monthsForServiceYear(serviceYear);
+  let totalHours = 0;
+  let totalCourses = 0;
+  let coursesCounted = 0;
+
+  months.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'pp-row-act';
+    const act = (person.activities && person.activities[m.key]) ? person.activities[m.key] : { aux:false, hours:'', studies:'', comments:'' };
+
+    // Determine whether this person's hours should be displayed:
+    // show hours when the person is a Precursor Regular,
+    // or when the month's Aux. Mes checkbox is active for that month.
+    // Additionally, if there exists a later month marked "Fin Precursorado Regular",
+    // months earlier than that fin month must preserve their hours (>1) visibility even if designation changed.
+    const designation = String(person.designation || '').trim();
+    const isPrecursor = (designation === 'Precursor Regular');
+
+    // find earliest fin/start month (if any)
+    let finMonth = '';
+    let startMonth = '';
+    if (person.activities) {
+      for (const k of Object.keys(person.activities)) {
+        if (k === '_lastMonth') continue;
+        const candidate = person.activities[k];
+        const txt = String(candidate && candidate.comments || '').trim();
+        if (txt === 'Fin Precursorado Regular') {
+          if (!finMonth || k < finMonth) finMonth = k;
+        }
+        if (txt === 'Inicio Precursorado Regular') {
+          if (!startMonth || k < startMonth) startMonth = k;
+        }
+      }
+    }
+
+    const monthKey = m.key;
+    const isBeforeFin = ((startMonth && monthKey < startMonth) || (finMonth && monthKey < finMonth));
+
+    // show hours if precursor, or aux checked, or if this month is before a "Fin Precursorado Regular" and hours > 1
+    // BUT never show hours when the recorded value is exactly 1 (these must be hidden in the registro popup)
+    const _hoursValStr = String(act.hours || '').trim();
+    const _isExactlyOne = (_hoursValStr === '1' || Number(_hoursValStr) === 1);
+    const showHoursForMonth = !_isExactlyOne && (isPrecursor || !!act.aux || (isBeforeFin && act.hours !== '' && Number(act.hours) > 1));
+
+    // Participation should reflect whether the record indicates participation:
+    // consider participation true only when numeric hours > 0 (months with no hours show no check).
+    const participated = (act.hours !== '' && parseInt(act.hours, 10) > 0);
+    const participation = participated ? '✔' : '';
+
+    const courses = act.studies || '';
+    const precursor = act.aux ? '✔' : '';
+    const hours = showHoursForMonth ? (act.hours || '') : '';
+
+    // accumulate totals for averages: only count numeric hours when they are shown
+    const hVal = (showHoursForMonth && act.hours !== '') ? (parseInt(act.hours || 0, 10) || 0) : 0;
+    totalHours += hVal;
+
+    if(courses !== '' && !isNaN(Number(courses))){
+      totalCourses += Number(courses);
+      coursesCounted++;
+    } else if(courses !== '' && /^\d+$/.test(String(courses).trim())){
+      totalCourses += parseInt(courses,10);
+      coursesCounted++;
+    } else if(courses !== ''){
+      // skip non-numeric courses values for totals/counting
+    }
+
+    const notes = act.comments || '';
+    row.innerHTML = `<div>${m.label}</div><div style="text-align:center">${participation}</div><div style="text-align:center">${escapeHtml(courses)}</div><div style="text-align:center">${precursor}</div><div style="text-align:right">${escapeHtml(hours)}</div><div>${escapeHtml(notes)}</div>`;
+    container.appendChild(row);
+  });
+
+  const total = document.createElement('div');
+  total.className = 'pp-total';
+  total.innerHTML = `<div style="flex:1 1 auto"></div><div>Total horas: ${totalHours}</div>`;
+  container.appendChild(total);
+
+  // compute averages:
+  // - courses: total sum of numeric courses divided by 12 months (fixed request)
+  // - hours: average per month across the service year (months.length, usually 12)
+  const monthsCount = months.length || 12;
+  const avgHours = monthsCount ? (totalHours / monthsCount) : 0;
+  const avgCourses = 12 ? (totalCourses / 12) : 0;
+
+  // update averages UI if present, format with two decimals
+  const avgCoursesEl = $('#pp_avgCourses');
+  const avgHoursEl = $('#pp_avgHours');
+  const metaWrap = $('#pp_meta');
+  const metaHoursEl = $('#pp_metaHours');
+  const diffWrap = $('#pp_diffWrap');
+  const diffEl = $('#pp_diff');
+  if(avgCoursesEl) avgCoursesEl.textContent = (Number.isFinite(avgCourses) ? avgCourses.toFixed(2) : '0.00');
+  if(avgHoursEl) avgHoursEl.textContent = (Number.isFinite(avgHours) ? avgHours.toFixed(2) : '0.00');
+
+  // Show "Meta horas" (editable, default 600) only when the person has designation "Precursor Regular"
+  const designation = String(person.designation || '').trim();
+  if(designation === 'Precursor Regular'){
+    // support a stored per-person metaHours value; fallback to 600
+    const metaVal = (person.metaHours !== undefined && person.metaHours !== null && String(person.metaHours).trim() !== '') ? String(person.metaHours) : '600';
+    if(metaHoursEl) metaHoursEl.textContent = metaVal;
+    if(metaWrap) metaWrap.style.display = 'block';
+
+    // compute and display Faltante / Sobrante = Total horas - Meta horas
+    const metaNum = parseInt(metaVal, 10) || 0;
+    const diff = totalHours - metaNum;
+    if(diffEl) diffEl.textContent = String(diff);
+    if(diffWrap) diffWrap.style.display = 'block';
+
+    // Make meta value editable via double-click: turn into input, commit on blur/Enter, persist to person.metaHours
+    if(metaHoursEl){
+      // remove any previous handlers by replacing the node to avoid duplicate listeners across renders
+      const newMeta = metaHoursEl.cloneNode(true);
+      metaHoursEl.parentNode.replaceChild(newMeta, metaHoursEl);
+      newMeta.style.cursor = 'pointer';
+      newMeta.title = 'Doble click para editar Meta horas';
+      newMeta.addEventListener('dblclick', (ev) => {
+        ev.stopPropagation();
+        // create input overlay
+        const inp = document.createElement('input');
+        inp.type = 'number';
+        inp.min = '0';
+        inp.value = (person.metaHours !== undefined && person.metaHours !== null && String(person.metaHours).trim() !== '') ? String(person.metaHours) : '600';
+        inp.style.width = '100%';
+        inp.style.boxSizing = 'border-box';
+        inp.style.padding = '6px';
+        inp.style.borderRadius = '6px';
+        inp.style.border = '1px solid #e6e9ee';
+        // replace node with input
+        newMeta.replaceWith(inp);
+        inp.focus();
+        inp.select();
+
+        function commitMeta(){
+          try{
+            const val = String(inp.value).trim();
+            // save numeric string or empty
+            person.metaHours = val === '' ? '' : val;
+            save();
+            // restore display node with new value
+            const disp = document.createElement('div');
+            disp.id = 'pp_metaHours';
+            disp.style.fontWeight = '700';
+            disp.style.fontSize = '15px';
+            disp.textContent = (person.metaHours === '' ? '' : String(person.metaHours));
+            disp.style.cursor = 'pointer';
+            // only replace if input is still connected to DOM
+            if(inp.isConnected && inp.parentNode){
+              try{ inp.replaceWith(disp); }catch(e){ /* ignore if already removed */ }
+            }
+            // re-render this section to reattach handlers; defer to avoid interfering with current event
+            setTimeout(() => {
+              renderActivityRowsFor(person, Number($('#pp_yearSelect') ? $('#pp_yearSelect').value : undefined) || undefined);
+            }, 10);
+          }catch(err){
+            // swallow unexpected errors to avoid breaking UI
+            console.error('commitMeta error', err);
+          }
+        }
+
+        function cancelMeta(){
+          try{
+            // restore display node without saving
+            const disp = document.createElement('div');
+            disp.id = 'pp_metaHours';
+            disp.style.fontWeight = '700';
+            disp.style.fontSize = '15px';
+            disp.textContent = metaVal;
+            // only replace if input still in DOM
+            if(inp.isConnected && inp.parentNode){
+              try{ inp.replaceWith(disp); }catch(e){ /* ignore if already removed */ }
+            }
+            setTimeout(() => {
+              renderActivityRowsFor(person, Number($('#pp_yearSelect') ? $('#pp_yearSelect').value : undefined) || undefined);
+            }, 10);
+          }catch(err){
+            console.error('cancelMeta error', err);
+          }
+        }
+
+        // use guarded handlers (avoid duplicate calls if blur triggers after node removal)
+        const onBlur = () => { commitMeta(); cleanupHandlers(); };
+        const onKey = (kev) => {
+          if(kev.key === 'Enter'){ kev.preventDefault(); commitMeta(); cleanupHandlers(); }
+          if(kev.key === 'Escape'){ kev.preventDefault(); cancelMeta(); cleanupHandlers(); }
+        };
+        function cleanupHandlers(){
+          try{
+            inp.removeEventListener('blur', onBlur);
+            inp.removeEventListener('keydown', onKey);
+          }catch(e){}
+        }
+        inp.addEventListener('blur', onBlur);
+        inp.addEventListener('keydown', onKey);
+      });
+    }
+  } else {
+    if(metaWrap) metaWrap.style.display = 'none';
+    if(diffWrap) diffWrap.style.display = 'none';
+  }
+
+  // populate year selector if present in popup and hook change to re-render
+  const sel = $('#pp_yearSelect');
+  if(sel){
+    // Ensure the control is a compact number input showing only up/down arrows.
+    sel.type = 'number';
+    sel.min = '1900';
+    sel.max = String(new Date().getFullYear() + 50);
+    sel.value = String(serviceYear);
+    sel.style.width = '96px';
+
+    sel.addEventListener('change', () => {
+      const y = parseInt(sel.value,10) || serviceYear;
+      renderActivityRowsFor(person, y);
+    });
+    sel.addEventListener('keydown', (ev) => {
+      if(ev.key === 'Enter'){
+        ev.preventDefault();
+        const y = parseInt(sel.value,10) || serviceYear;
+        renderActivityRowsFor(person, y);
+      }
+    });
   }
 }
 
-// Load the latest backup (by createdTime desc) from the fixed folder and restore it
-async function loadLatestBackupFromDrive() {
-  try {
-    if (!currentGoogleUser && !window.currentGoogleUser) {
-      alert('Primero inicie sesión con Google para cargar respaldos.');
-      return;
-    }
+/* show popup with person data populated */
+function showProfilePopup(person){
+  const pop = $('#profilePopup');
+  if(!pop) return;
+  // populate fields
+  $('#pp_congName').value = person.congName || '';
+  $('#pp_firstName').value = person.firstName || '';
+  $('#pp_lastNameP').value = person.lastNameP || '';
+  $('#pp_lastNameM').value = person.lastNameM || '';
+  $('#pp_birthDate').value = person.birthDate || '';
+  $('#pp_baptismDate').value = person.baptismDate || '';
+  $('#pp_sex').value = person.sex || '';
+  $('#pp_privilege').value = person.privilege || '';
+  $('#pp_designation').value = person.designation || '';
+  $('#pp_esp').value = person.esp || '';
 
-    // Ensure valid token (silent renewal when possible)
-    try {
-      await ensureValidToken();
-    } catch (err) {
-      console.warn('No se pudo renovar token silencioso, solicitando consentimiento...', err);
-      await requestDriveToken(true);
-    }
-    if (!driveAccessToken) {
-      alert('No se pudo obtener token de acceso para Google Drive.');
-      return;
-    }
 
-    // List files in the folder with mimeType application/json ordered by createdTime desc
-    const q = encodeURIComponent(`'1nyPnBXUbMRuSBUNd45K7EN9OLkxbaMNO' in parents and mimeType='application/json'`);
-    const fields = encodeURIComponent('files(id,name,createdTime)');
-    const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&fields=${fields}`;
+  renderActivityRowsFor(person);
 
-    const listRes = await fetch(listUrl, {
-      method: 'GET',
-      headers: { Authorization: 'Bearer ' + driveAccessToken }
-    });
-
-    if (!listRes.ok) {
-      const t = await listRes.text();
-      console.error('Error listando archivos en Drive:', listRes.status, t);
-      alert('Error listando respaldos en Drive: ' + listRes.statusText);
-      return;
-    }
-
-    const listJson = await listRes.json();
-    const files = listJson.files || [];
-    if (files.length === 0) {
-      alert('No se encontraron archivos de respaldo en la carpeta RESPALDOS FINANZAS.');
-      return;
-    }
-
-    const latest = files[0];
-    const fileId = latest.id;
-
-    const getUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-    const getRes = await fetch(getUrl, {
-      method: 'GET',
-      headers: { Authorization: 'Bearer ' + driveAccessToken }
-    });
-
-    if (!getRes.ok) {
-      const t = await getRes.text();
-      console.error('Error descargando respaldo:', getRes.status, t);
-      alert('Error descargando respaldo desde Drive: ' + getRes.statusText);
-      return;
-    }
-
-    const state = await getRes.json();
-    restoreAppState(state);
-
-    // Persist and show the filename of the loaded backup from Drive
-    try {
-      if (latest && latest.name) {
-        localStorage.setItem('last_backup_name', latest.name);
-        const el = document.getElementById('lastBackupName');
-        if (el) el.textContent = latest.name;
-      }
-    } catch (e) { /* ignore */ }
-
-    alert(`Respaldo "${latest.name}" cargado correctamente.`);
-  } catch (err) {
-    console.error('Excepción cargando respaldo de Drive:', err);
-    alert('Ocurrió un error al cargar respaldo: ' + (err.message || err));
-  }
+  pop.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
 }
+
+/* close popup */
+function closeProfilePopup(){
+  const pop = $('#profilePopup');
+  if(!pop) return;
+  pop.classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+/* wire popup close buttons */
+document.addEventListener('click', (e) => {
+  const wrap = document.getElementById('profilePopup');
+  if(!wrap || wrap.classList.contains('hidden')) return;
+  if(e.target === wrap){
+    closeProfilePopup();
+  }
+});
+document.addEventListener('DOMContentLoaded', () => {
+  const c = $('#closeProfilePopup');
+  if(c) c.addEventListener('click', closeProfilePopup);
+  const c2 = $('#pp_close');
+
+  // generate PDF from popup content as formatted text/table using jsPDF (no image capture)
+  async function generateProfilePDF(){
+    try{
+      const jsPDFmod = await import('https://esm.sh/jspdf@2.5.1');
+      const { jsPDF } = jsPDFmod;
+      const pdf = new jsPDF({ unit: 'pt', format: 'letter' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 28; // comfortable margin in points
+      const usableW = pageWidth - margin * 2;
+      let y = margin;
+
+      // Helper to draw wrapped text
+      function drawWrapped(text, x, yPos, maxWidth, lineHeight){
+        const lines = pdf.splitTextToSize(String(text || ''), maxWidth);
+        pdf.text(lines, x, yPos);
+        return lines.length * lineHeight;
+      }
+
+      // Header
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('REGISTRO DE PUBLICADOR DE LA CONGREGACION', margin, y);
+      // add a slightly larger gap after the title so the title is visually separated from the following info
+      y += 28;
+
+      // (removed subtitle line per request) — preserve small vertical gap after title
+      y += 18;
+
+      // Personal info fields from popup inputs
+      const fields = [
+        ['Nombre (Cong.)', $('#pp_congName') ? $('#pp_congName').value : ''],
+        ['Nombre', $('#pp_firstName') ? $('#pp_firstName').value : ''],
+        ['Apellido Paterno', ' ' + ($('#pp_lastNameP') ? $('#pp_lastNameP').value : '')],
+        ['Apellido Materno', ' ' + ($('#pp_lastNameM') ? $('#pp_lastNameM').value : '')],
+        ['Fecha de nacimiento', ' ' + ($('#pp_birthDate') ? $('#pp_birthDate').value : '')],
+        ['Fecha de bautismo', ' ' + ($('#pp_baptismDate') ? $('#pp_baptismDate').value : '')],
+        ['Sexo', $('#pp_sex') ? $('#pp_sex').value : ''],
+        ['Privilegio', $('#pp_privilege') ? $('#pp_privilege').value : ''],
+        ['Designación', ' ' + ($('#pp_designation') ? $('#pp_designation').value : '')],
+        ['Esp', $('#pp_esp') ? $('#pp_esp').value : '']
+      ];
+
+      // Two-column layout for personal fields
+      const colGap = 12;
+      const colW = (usableW - colGap) / 2;
+      let xLeft = margin;
+      let xRight = margin + colW + colGap;
+      let maxRowH = 0;
+      pdf.setFontSize(10);
+      pdf.setTextColor(30);
+      fields.forEach((f, i) => {
+        const x = (i % 2 === 0) ? xLeft : xRight;
+        const label = f[0] + ': ';
+        const value = f[1] || '';
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(label, x, y);
+        pdf.setFont('helvetica', 'normal');
+        const consumed = drawWrapped(value, x + pdf.getTextWidth(label) + 4, y, (i % 2 === 0 ? colW : colW) - pdf.getTextWidth(label) - 4, 12);
+        const rowH = Math.max(12, consumed);
+        maxRowH = Math.max(maxRowH, rowH);
+        if(i % 2 === 1){
+          // advance y after completing the pair
+          y += maxRowH + 6;
+          maxRowH = 0;
+        }
+      });
+      if(fields.length % 2 === 1) y += maxRowH + 6;
+
+      y += 6;
+
+      // Activity year selector (read selected year from popup)
+      const yearEl = $('#pp_yearSelect');
+      const serviceYear = yearEl ? parseInt(yearEl.value,10) : (new Date().getFullYear());
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`Actividad - Año de servicio: ${serviceYear} (Septiembre ${serviceYear-1} - Agosto ${serviceYear})`, margin, y);
+      y += 14;
+
+      // Build months list for that service year (Sept of previous calendar year -> Aug of serviceYear)
+      function monthsForServiceYear(year){
+        const months = [];
+        const start = new Date(year - 1, 8, 1); // Sept previous year
+        const end = new Date(year, 7, 1);       // Aug of serviceYear
+        let cur = new Date(start);
+        while(cur.getFullYear() < end.getFullYear() || (cur.getFullYear() === end.getFullYear() && cur.getMonth() <= end.getMonth())){
+          const key = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;
+          const label = cur.toLocaleString('es', { month:'long', year:'numeric' });
+          months.push({ key, label });
+          cur.setMonth(cur.getMonth() + 1);
+          if(months.length > 36) break;
+        }
+        return months;
+      }
+
+      // Acquire person activities from currently shown person inputs
+      // We rely on the profile popup inputs for person identity; try to find the person in data store to get activities
+      const congNameVal = $('#pp_congName') ? $('#pp_congName').value : '';
+      const person = people.find(p => (p.congName || '') === congNameVal) || null;
+
+      const months = monthsForServiceYear(serviceYear);
+
+      // Table header
+      // Compute column widths so:
+      // - "Mes" is just wide enough to show its longest month label on one line
+      // - Four middle columns share equal width
+      // - "Notas" is wider than the others and takes the remaining space
+      const monthsForPDF = months; // months array already computed above
+      // estimate required width for "Mes" by measuring each label with pdf.getTextWidth
+      let maxLabelW = 0;
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(10);
+      monthsForPDF.forEach(mo => {
+        const w = pdf.getTextWidth(String(mo.label || '')) + 8; // small padding
+        if (w > maxLabelW) maxLabelW = w;
+      });
+      // clamp mes width to reasonable bounds
+      const minMesW = 70;
+      const maxMesWClamp = Math.min(usableW * 0.22, 160);
+      const mesW = Math.max(minMesW, Math.min(maxLabelW, maxMesWClamp));
+
+      // remaining width to distribute
+      const remaining = usableW - mesW;
+      // allocate ~30% of remaining to Notes, rest divided equally among 4 middle cols
+      const notesW = Math.floor(remaining * 0.30);
+      const otherColsCount = 4;
+      const otherW = Math.floor((remaining - notesW) / otherColsCount);
+
+      const cols = [
+        { title: 'Mes', w: mesW },
+        { title: 'Participación', w: otherW },
+        { title: 'Cursos bíblicos', w: otherW },
+        { title: 'Precursor aux.', w: otherW },
+        { title: 'Horas', w: otherW },
+        { title: 'Notas', w: Math.max(remaining - otherW * otherColsCount, notesW) }
+      ];
+      // Ensure page has space; if not, add new page
+      function ensureSpace(h){
+        if(y + h > pageHeight - margin){
+          pdf.addPage();
+          y = margin;
+        }
+      }
+
+      // Draw header labels centered in each uniform column
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'bold');
+      const headerH = 16;
+      ensureSpace(headerH + 6);
+      let tx = margin;
+      cols.forEach(c => {
+        // center header text inside the column
+        pdf.text(String(c.title), tx + c.w / 2, y + 11, { align: 'center' });
+        tx += c.w;
+      });
+      y += headerH + 4;
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+
+      // Rows
+      let totalHours = 0;
+      // additional accumulators for courses so we can calculate averages like the popup does
+      let totalCourses = 0;
+      let numericCoursesCount = 0;
+
+      months.forEach(m => {
+        ensureSpace(18);
+        const act = (person && person.activities && person.activities[m.key]) ? person.activities[m.key] : { participation:false, studies:'', aux:false, hours:'', comments:'' };
+
+        // Determine whether to display hours for this person/month:
+        const designation = person ? String(person.designation || '').trim() : '';
+        const isPrecursor = (designation === 'Precursor Regular');
+        // Never show hours when the recorded value is exactly 1
+        const _hoursValStr_pdf = String(act.hours || '').trim();
+        const _isExactlyOne_pdf = (_hoursValStr_pdf === '1' || Number(_hoursValStr_pdf) === 1);
+        const showHoursForMonth = !_isExactlyOne_pdf && (isPrecursor || !!act.aux);
+
+        // Participation should reflect the stored record: only when numeric hours > 0
+        const participated = (act.hours !== '' && parseInt(act.hours || 10) > 0);
+        const participation = participated ? '✔' : '';
+
+        const courses = act.studies || '';
+        const precursor = act.aux ? '✔' : '';
+        const hours = showHoursForMonth ? (act.hours || '') : '';
+
+        // Only accumulate hours when they are shown (consistent with display)
+        totalHours += (showHoursForMonth && act.hours !== '') ? (parseInt(act.hours || 0,10) || 0) : 0;
+
+        // accumulate numeric courses for average calculation
+        if(courses !== '' && !isNaN(Number(courses))){
+          totalCourses += Number(courses);
+          numericCoursesCount++;
+        }
+
+        const notes = act.comments || '';
+
+        // draw columns with wrapping where needed
+        let cx = margin;
+        // Mes (wrap & center)
+        const mesLines = pdf.splitTextToSize(String(m.label || ''), cols[0].w - 6);
+        pdf.text(mesLines, cx + cols[0].w / 2, y + 10, { align: 'center' });
+        cx += cols[0].w;
+
+        // Participación (center) — draw only a vector checkmark (no surrounding box) when participated
+        const partX = cx + cols[1].w / 2;
+        const partY = y + 8;
+        const checkSize = 10;
+        if (participated) {
+          // draw a crisp checkmark centered at partX, partY
+          pdf.setDrawColor(0);
+          pdf.setLineWidth(1.1);
+          const cx0 = partX - checkSize / 2;
+          const cy0 = partY - checkSize / 2;
+          const x1 = cx0 + checkSize * 0.18, y1 = cy0 + checkSize * 0.55;
+          const x2 = cx0 + checkSize * 0.45, y2 = cy0 + checkSize * 0.80;
+          const x3 = cx0 + checkSize * 0.82, y3 = cy0 + checkSize * 0.26;
+          pdf.line(x1, y1, x2, y2);
+          pdf.line(x2, y2, x3, y3);
+        }
+        cx += cols[1].w;
+
+        // Cursos bíblicos (center)
+        pdf.text(String(courses || ''), cx + cols[2].w / 2, y + 10, { align: 'center' });
+        cx += cols[2].w;
+
+        // Precursor aux. (center) — draw a crisp checkmark vector when true (avoids glyph clipping)
+        const precursorX = cx + cols[3].w / 2;
+        const precursorY = y + 8;
+        const precursorSize = 10;
+        if (precursor) {
+          pdf.setDrawColor(0);
+          pdf.setLineWidth(1.1);
+          const pCx0 = precursorX - precursorSize / 2;
+          const pCy0 = precursorY - precursorSize / 2;
+          const px1 = pCx0 + precursorSize * 0.18, py1 = pCy0 + precursorSize * 0.55;
+          const px2 = pCx0 + precursorSize * 0.45, py2 = pCy0 + precursorSize * 0.80;
+          const px3 = pCx0 + precursorSize * 0.82, py3 = pCy0 + precursorSize * 0.26;
+          pdf.line(px1, py1, px2, py2);
+          pdf.line(px2, py2, px3, py3);
+        }
+        cx += cols[3].w;
+
+        // Horas (center) - only render numeric hours when permitted
+        const hoursText = String(hours || '');
+        pdf.text(hoursText, cx + cols[4].w / 2, y + 10, { align: 'center' });
+        cx += cols[4].w;
+
+        // Notas (wrap & center)
+        const notesLines = pdf.splitTextToSize(String(notes || ''), cols[5].w - 6);
+        // draw each notes line centered
+        pdf.text(notesLines, cx + cols[5].w / 2, y + 10, { align: 'center' });
+
+        // determine row height based on tallest wrapped column (mesLines or notesLines)
+        const mesH = (pdf.splitTextToSize(String(m.label || ''), cols[0].w - 6).length || 1) * 10 + 6;
+        const notesH = (notesLines.length || 1) * 10 + 6;
+        const rowH = Math.max(14, mesH, notesH);
+
+        // draw a thin gray horizontal separator under the row to visually separate months
+        try {
+          const lineY = y + rowH - 2; // slightly above the next row start
+          pdf.setDrawColor(180); // light gray
+          pdf.setLineWidth(0.5);
+          pdf.line(margin, lineY, margin + usableW, lineY);
+          // restore draw color and line width for subsequent content
+          pdf.setDrawColor(0);
+          pdf.setLineWidth(0.5);
+        } catch (e) {
+          // ignore drawing errors silently
+        }
+
+        y += rowH;
+      });
+
+      // compute averages consistent with popup:
+      // avgCourses: sum of numeric courses divided by 12 (fixed)
+      // avgHours: average per month across the service year (months.length)
+      const monthsCount = months.length || 12;
+      const avgCourses = 12 ? (totalCourses / 12) : 0;
+      const avgHours = monthsCount ? (totalHours / monthsCount) : 0;
+
+      // Totals and averages
+      ensureSpace(36);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`Total horas: ${totalHours}`, margin, y + 12);
+
+      // place averages to the right of total
+      const avgTextX = margin + 220;
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Promedio cursos: ${Number.isFinite(avgCourses) ? avgCourses.toFixed(2) : '0.00'}`, avgTextX, y + 12);
+      pdf.text(`Promedio horas: ${Number.isFinite(avgHours) ? avgHours.toFixed(2) : '0.00'}`, avgTextX, y + 28);
+
+      // If the person is a "Precursor Regular", include Meta horas and Faltante / Sobrante
+      const designation = person ? String(person.designation || '').trim() : '';
+      if(designation === 'Precursor Regular'){
+        // determine meta value (persisted per-person or default 600)
+        const metaValStr = (person && person.metaHours !== undefined && person.metaHours !== null && String(person.metaHours).trim() !== '') ? String(person.metaHours) : '600';
+        const metaNum = parseInt(metaValStr, 10) || 0;
+        const diff = totalHours - metaNum;
+
+        // draw meta and diff below averages (aligned with averages area)
+        // Render "Meta horas" without bold weight (use normal)
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(`Meta horas: ${metaNum}`, avgTextX, y + 44);
+        pdf.setFont('helvetica', 'normal');
+        const diffText = (diff >= 0) ? `Sobrante: ${diff}` : `Faltante: ${Math.abs(diff)}`;
+        pdf.text(`Faltante / Sobrante: ${diffText}`, avgTextX, y + 60);
+
+        y += 64;
+      } else {
+        y += 36;
+      }
+
+      // Footer with generation date
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'normal');
+      const now = new Date();
+      pdf.text(`Generado: ${now.toLocaleString()}`, margin, pageHeight - margin - 6);
+
+      // filename from congName or fallback
+      const nameEl = $('#pp_congName');
+      // sanitize and build filename as "YYYY.MM.DD - S21 - Nombre (Cong.).pdf"
+      const rawName = (nameEl && nameEl.value) ? nameEl.value.replace(/[^\w\-\s]/g,'').trim() : 'registro';
+      const nowStr = (() => {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}.${m}.${day}`;
+      })();
+      const fileName = `${nowStr} - S21 - ${rawName || 'registro'}.pdf`;
+      pdf.save(fileName);
+    }catch(err){
+      console.error(err);
+      alert('Error al generar PDF: ' + (err && err.message ? err.message : err));
+    }
+  }
+
+  if(c2){
+    c2.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      // generate PDF; keep popup open
+      generateProfilePDF();
+    });
+  }
+});
+
+/* Info-icon handler for activity comment boxes:
+   When the info button inside .act-comments is clicked, show a small tab with two choices:
+   "Inicio Precursorado Regular" and "Fin Precursorado Regular". Selecting one will replace
+   the comment cell text with the chosen label (visible in the contenteditable box). */
+tbody.addEventListener('click', (e) => {
+  const infoBtn = e.target.closest('.comment-info');
+  if (!infoBtn) return;
+  e.stopPropagation();
+
+  // find the comment container (the contenteditable .act-comments div)
+  const commentBox = infoBtn.closest('.act-comments');
+  if (!commentBox) return;
+
+  // prevent multiple tabs
+  const existing = document.getElementById('commentInfoTab');
+  if (existing) existing.remove();
+
+  // build small tab
+  const tab = document.createElement('div');
+  tab.id = 'commentInfoTab';
+  tab.className = 'month-tab';
+  tab.style.minWidth = '220px';
+  tab.style.padding = '8px';
+  tab.style.display = 'flex';
+  tab.style.flexDirection = 'column';
+  tab.style.gap = '8px';
+
+  const opt1 = document.createElement('button');
+  opt1.type = 'button';
+  opt1.className = 'secondary';
+  opt1.textContent = 'Inicio Precursorado Regular';
+  opt1.style.width = '100%';
+  opt1.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    // write the label into the inner editable area so the wrapper and info button stay intact
+    const editable = commentBox.querySelector('.act-comments-input') || commentBox;
+    if(editable && typeof editable.textContent !== 'undefined'){
+      editable.textContent = 'Inicio Precursorado Regular';
+      // focus the editable area for immediate feedback and persist
+      try{ editable.focus(); }catch(e){}
+      // trigger save handlers by dispatching input
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    tab.remove();
+  });
+
+  const opt2 = document.createElement('button');
+  opt2.type = 'button';
+  opt2.className = 'secondary';
+  opt2.textContent = 'Fin Precursorado Regular';
+  opt2.style.width = '100%';
+  opt2.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const editable = commentBox.querySelector('.act-comments-input') || commentBox;
+    if(editable && typeof editable.textContent !== 'undefined'){
+      editable.textContent = 'Fin Precursorado Regular';
+      try{ editable.focus(); }catch(e){}
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    tab.remove();
+  });
+
+  // optionally allow appending the label instead of replacing: add small toggle (not shown) - keep simple replace per request
+  tab.appendChild(opt1);
+  tab.appendChild(opt2);
+
+  document.body.appendChild(tab);
+  // position tab directly attached under the info icon (centered under the icon)
+  const rect = infoBtn.getBoundingClientRect();
+  tab.style.position = 'absolute';
+  // place tab centered under the icon and snug against its bottom (small 4px gap)
+  tab.style.left = (rect.left + window.scrollX + rect.width / 2) + 'px';
+  tab.style.transform = 'translateX(-50%)';
+  tab.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+  tab.style.zIndex = 9999;
+
+  // clicking outside closes the tab
+  setTimeout(() => {
+    const onDocClick = (ev) => {
+      if (!tab) return;
+      if (!tab.contains(ev.target) && ev.target !== infoBtn) {
+        tab.remove();
+        document.removeEventListener('click', onDocClick);
+      }
+    };
+    document.addEventListener('click', onDocClick);
+  }, 0);
+});
+
+initResizableColumns();
+initHeaderSorting();
+// Ensure "Registro" is active on initial load
+activityMode = false;
+if (registroBtn) registroBtn.classList.add('active');
+if (actividadBtn) actividadBtn.classList.remove('active');
+updateOptionsBar();
+render();

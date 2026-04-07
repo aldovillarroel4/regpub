@@ -1,3901 +1,858 @@
-/* Global Styles */
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+:root{
+  /* Light, macOS-like theme */
+  --bg: #f6f7f8;
+  --card: #ffffff;
+  --panel: rgba(255,255,255,0.9);
+  --muted: #6b7280;        /* subtle gray for labels */
+  --text: #0f1720;         /* primary text (darker than pure black) */
+  --subtle: #e6e9ee;       /* borders and dividers */
+  --accent: #0b66ff;       /* primary action blue (macOS style) */
+  --accent-strong: #0b66ff;
+  --accent-warm: #ff7a1a;  /* warm orange for highlights */
+  --danger: #e02424;
+  --radius:12px;
+  --gap:12px;
+  --pad:14px;
+  font-size:14px;
+  font-family: "San Francisco Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+*{box-sizing:border-box}
+html,body,#app{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  display:flex;
+  align-items:flex-start;
+  justify-content:flex-start;
+  padding:20px;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  color:var(--text);
 }
 
-body {
-  /* Use macOS San Francisco / SF Pro stack with sensible fallbacks */
-  font-family: -apple-system, "SF Pro Text", "San Francisco", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  line-height: 1.6;
-  background-color: #1c1919;
+/* Container */
+#app{
+  width:100%;
+  max-width:none;
+  padding:0 20px;
 }
 
-.container {
-  max-width: 1800px;
-  margin: 0 auto;
-  padding: 20px;
+/* Banner above toolbar */
+.banner{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.8), rgba(248,249,250,0.9));
+  border:1px solid var(--subtle);
+  color: var(--text);
+  font-weight:700;
+  padding:12px 16px;
+  border-radius:10px;
+  margin-bottom:12px;
+  letter-spacing:0.2px;
+  font-size:14px;
+  box-shadow: 0 4px 14px rgba(16,24,40,0.04);
 }
-
-section {
-  background: linear-gradient(to right, #000000, #2c3e50) !important;;
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 20px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+.banner-title{
+  color:var(--text);
+  font-weight:700;
+  font-size:18px;
+  text-align:left;
 }
-
-h2 {
-  color: #fff;
-  margin-bottom: 20px;
-}
-
-h3 {
-  color: #666;
-  margin-bottom: 10px;
-}
-
-/* Updated styles for the summary section */
-.summary-section {
-  background: linear-gradient(to right, #000000, #2c3e50);
-  color: white;
-  position: relative;  
-  padding: 15px; /* Reduced padding */
-}
-
-.summary-section h2,
-.summary-section h3 {
-  color: white;
-}
-
-.summary-content {  
-  display: grid;
-  grid-template-columns: 0.5fr 2.8fr 0.4fr; /* Changed from 2.5fr to 2.8fr for middle column */
-  gap: 20px;
-  margin-top: 10px;
-  min-height: fit-content;
-  justify-content: stretch; /* Stretch content to fill space */
-}
-
-.total-balance {
-  text-align: center;
-  font-size: 1.3em;
-  padding: 15px;
-  min-height: 180px;
-  min-width: 280px; /* Added min-width to ensure minimum width */
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  position: sticky;
-  top: 20px;
-  height: fit-content;
-}
-
-#totalAmount {
-  font-size: 2.2em; /* Slightly smaller font size */
-  font-weight: bold;
-  margin-top: 10px; /* Reduced margins */
-  margin-bottom: 15px;
-}
-
-.balance-indicators {
-  gap: 6px; /* Reduced gap */
-  font-size: 0.65em; /* Smaller font size */
-  margin-top: auto;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.balance-indicator {
-  padding: 3px 8px; /* Reduced padding */
-  display: flex;
-  justify-content: space-between;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-
-.balance-indicator .label {
-  font-weight: bold;
-}
-
-.balance-indicator .value {
+/* inline editable input that replaces the title while editing */
+.banner-title-input{
   font-family: inherit;
+  font-size:18px;
+  font-weight:700;
+  padding:6px 8px;
+  border-radius:8px;
+  border:1px solid var(--subtle);
+  width:100%;
+  max-width:640px;
+  box-sizing:border-box;
+  color: var(--text);
+  background: transparent;
+}
+.banner-controls{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+/* small icon style for banner actions */
+.icon-btn{
+  border:0;
+  background:transparent;
+  color:var(--text);
+  padding:6px 8px;
+  border-radius:8px;
+  cursor:pointer;
+  font-weight:600;
+}
+.icon-btn:hover{
+  background: rgba(11,102,255,0.06);
+}
+.group-seq{
+  width:30px;                  /* match badge wrapper width */
+  min-width:30px;
+  height:20px;                 /* match badge wrapper height */
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:12px;
+  color:var(--muted);
+  font-weight:700;
+  box-sizing:border-box;
+  line-height:1;
+  /* ensure it doesn't affect row layout when hidden */
+  visibility:visible;
 }
 
-.accounts-summary {
-  padding: 15px; /* Reduced padding */
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  position: relative;
-  height: fit-content;
-  min-height: 100%;
-  min-width: 600px; /* Added min-width */
+/* small spacing tweak so name text aligns well with badge+seq block */
+#groupsPopup .group-seq{
+  margin:0;
+  padding:0;
 }
 
-/* Updated styles for account buttons */
-.account-buttons {
-  position: absolute;
-  top: 15px; /* Adjusted position */
-  right: 15px;
-  display: flex;
-  gap: 10px;
+/* keep the hidden helper */
+.hidden{display:none}
+
+/* Toolbar */
+.toolbar{
+  display:flex;
+  gap:10px;
+  margin-bottom:14px;
+  align-items:center;
+  width:100%;
 }
 
-.checkbox-group {
-  display: flex;
-  align-items: center;
+/* Contextual options bar placed under the toolbar */
+.options-bar{
+  background:var(--card);
+  color:var(--text);
+  border-radius:10px;
+  padding:10px;
+  margin-bottom:14px;
+  min-height:48px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  box-shadow: 0 1px 0 rgba(16,24,40,0.03) inset;
+  border:1px solid var(--subtle);
+  width:100%;
+}
+.primary{
+  background: linear-gradient(180deg, var(--accent), #0657d6);
+  color:#fff;
+  border:0;
+  padding:10px 14px;
+  border-radius:10px;
+  font-weight:700;
+  cursor:pointer;
+  box-shadow: 0 6px 18px rgba(11,102,255,0.12);
+}
+.primary:active{transform:translateY(1px)}
+
+/* Secondary button */
+.secondary{
+  background:transparent;
+  color:var(--text);
+  border:1px solid var(--subtle);
+  padding:10px 14px;
+  border-radius:10px;
+  font-weight:600;
+  cursor:pointer;
+}
+.secondary:hover{
+  background: rgba(11,102,255,0.06);
+}
+.secondary:active{transform:translateY(1px)}
+
+/* Active state for secondary buttons (use subtle blue outline) */
+.secondary.active{
+  background: rgba(11,102,255,0.06);
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(11,102,255,0.06);
 }
 
-.add-account-btn {
-  background-color: #27ae60;
-}
-
-.delete-account-btn {
-  background-color: #c0392b;
-}
-
-.add-account-btn,
-.delete-account-btn {
-  padding: 6px 12px; /* Reduced padding */
-  font-size: 13px; /* Smaller font size */
+/* Danger button */
+.danger{
+  background: var(--danger);
   color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-  width: auto;
-}
-
-.add-account-btn:hover { 
-  background-color: #219a52; 
-}
-
-.delete-account-btn:hover { 
-  background-color: #962b22; 
-}
-
-.accounts-by-treatment {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px; /* Increased gap between columns */
-  margin-top: 20px; /* Reduced from 30px */
-  height: fit-content;
-}
-
-.treatment-section {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 6px;
-  padding: 12px; /* Increased padding */
-  height: fit-content;
-  min-width: 280px; /* Added minimum width for each section */
-}
-
-.treatment-section h4 {
-  color: white;
-  text-align: center;
-  margin-bottom: 6px; /* Reduced from 8px */
-  font-size: 0.9em; /* Reduced from 1em */
-}
-
-.treatment-total {
-  display: flex;
-  justify-content: space-between;  
-  align-items: center;
-  font-size: 1.2em; /* Increased from 1em */
-  font-weight: 700;
-  padding: 8px 12px; /* Increased padding from 4px 6px */
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  position: relative;
-  margin-bottom: 8px; /* Increased from 6px */
-}
-
-.treatment-total::before {  
-  content: "Total";
-  font-size: 1.1em; /* Increased from 1em */
-  color: rgba(255, 255, 255, 0.8);
-  font-weight: 700;
-  margin-right: 8px; /* Increased from 6px */
-}
-
-.activos-section .treatment-total {
-  color: #2ecc71;
-}
-
-.pasivos-section .treatment-total {
-  color: #e74c3c;
-}
-
-.accounts-list {
-  max-height: none;
-  overflow-y: visible;
-  padding: 5px;
-}
-
-.accounts-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.accounts-list::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.accounts-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
-}
-
-.drag-over {
-  border: 2px dashed rgba(255, 255, 255, 0.5);
-  padding: 3px;
-}
-
-/* Estilos para el formulario */
-.form-group {
-  margin-bottom: 15px;
-}
-
-label {
-  display: block;
-  margin-bottom: 5px;
-  color: #666;
-}
-
-input, select {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 16px;
-}
-
-button {
-  background-color: #3498db;
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-  font-size: 16px;
-  width: 100%;
-}
-
-button:hover {
-  background-color: #2980b9;
-}
-
-/* Add new styles for the transactions layout */
-.transactions-container {
-  display: grid;
-  grid-template-columns: 0.5fr 2fr;  
-  gap: 20px;
-  transition: height 0.3s ease, opacity 0.3s ease;
-  overflow: hidden;
-}
-
-.transactions-container.hidden {
-  height: 0;
-  opacity: 0;
-  margin: 0;
-}
-
-.transaction-section {
-  background: linear-gradient(to right, #000000, #2c3e50);
-  color: white;
-  margin-bottom: 0;
-  padding: 15px;
-}
-
-.transaction-section h2,
-.transaction-section label {
-  color: white;
-}
-
-.transaction-section form {
-  background: rgba(255, 255, 255, 0.1);
-  padding: 15px;
-  border-radius: 8px;
-  box-shadow: none;
-  max-width: 100%;
-}
-
-.transaction-section input,
-.transaction-section select {
-  background: rgba(255, 255, 255, 0.9);
-  border: none;
-  padding: 8px;
-  color: #2c3e50;
-  font-size: 0.95em;
-}
-
-.transaction-section input:focus,
-.transaction-section select:focus {
-  background: white;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
-}
-
-.transaction-section button[type="submit"] {
-  background-color: rgba(46, 204, 113, 0.9);
-  color: white;
-  padding: 12px;
-  border: none;
-  border-radius: 4px;
-  font-size: 16px;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.transaction-section button[type="submit"]:hover {
-  background-color: rgba(46, 204, 113, 1);
-}
-
-.history-section {
-  margin-bottom: 0; 
-  position: relative;
-  border: 0px solid #fff;
-  height: 800px;  
-  display: flex;
-  flex-direction: column;
-  overflow: hidden; 
-}
-
-.history-section h2 {
-  padding: 20px;
-  margin: 0;
-  flex-shrink: 0; 
-}
-
-.transactions-list {
-  flex: 1;
-  overflow-y: auto; 
-  padding: 0 15px 15px 15px;
-}
-
-.transactions-list::-webkit-scrollbar {
-  width: 8px;
-}
-
-.transactions-list::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-.transactions-list::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
-}
-
-.transactions-list::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
-
-/* Add styles for the no-transactions message */
-.transactions-list p {
-  padding: 20px;
-  margin: 20px 0;
-  background: #202326;
-  border-radius: 8px;
-  text-align: center;
-}
-
-/* Add new styles for the clear-all button */
-.clear-all-btn {
-  background-color: #3498db;
-  color: white;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  width: 120px; 
-  transition: background-color 0.3s ease;
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  white-space: nowrap; 
-}
-
-.clear-all-btn:hover {
-  background-color: #2980b9;
-}
-
-/* Add new styles for the add-installment button */
-.add-installment-btn {
-  background-color: #95a5a6;
-  color: white;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  width: 120px;
-  transition: background-color 0.3s ease;
-  position: absolute;
-  top: 20px;
-  right: 150px; 
-  white-space: nowrap;
-}
-
-.add-installment-btn:hover {
-  color: #7f8c8d;
-}
-
-/* Add new styles for the toggle-all-settled button */
-.toggle-all-settled-btn {
-  background-color: #95a5a6;
-  color: white;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  width: 120px;
-  transition: background-color 0.3s ease;
-  position: absolute;
-  top: 20px;
-  right: 280px; 
-  white-space: nowrap;
-}
-
-.toggle-all-settled-btn:hover {
-  background-color: #7f8c8d;
-}
-
-/* Add new styles for checkbox group */
-.checkbox-group {
-  display: flex;
-  align-items: center;
-}
-
-.checkbox-group input[type="checkbox"] {
-  width: auto;
-  margin-right: 8px;
-}
-
-.checkbox-group label {
-  display: flex;
-  align-items: center;
-  margin-bottom: 0;
-  cursor: pointer;
-}
-
-.transaction-buttons {
-  display: flex;
-  gap: 5px;
-}
-
-.settled-transaction-btn {
-  background-color: #95a5a6;
-  color: white;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  width: auto;
-  transition: background-color 0.3s ease;
-}
-
-.settled-transaction-btn:hover {
-  background-color: #7f8c8d;
-}
-
-.settled-transaction-btn.active {
-  background-color: #27ae60;
-}
-
-.settled-transaction-btn.active:hover {
-  background-color: #219a52;
-}
-
-.transaction-item {
-  padding: 6px 8px; 
-  gap: 6px; 
-  font-size: 0.95em; 
-  border-bottom: 1px solid #eee;
-  display: grid;
-  grid-template-columns: auto 90px 1.2fr auto 1.3fr auto auto; 
-  align-items: start;
-  cursor: grab;
-  background: #24222200;
-  transition: background-color 0.2s ease, transform 0.2s ease;
-}
-
-.transaction-amount {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  font-weight: bold;
-  min-width: 87px; 
-  justify-content: center;
-}
-
-.transaction-amount.editable {
-  text-align: center;
-  width: 100%;
-  font-weight: bold;
-}
-
-.edit-transaction-amount {
-  text-align: center !important;
-  font-weight: bold;
-}
-
-.transaction-item span:nth-child(2) {
-  width: 90px;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.transaction-item:hover {
-  background-color: rgba(52, 152, 219, 0.05);
-}
-
-.transaction-item.dragging {
-  opacity: 0.5;
-  cursor: grabbing;
-  background: #f8f9fa;
-  border: 1px dashed #3498db;
-}
-
-.transaction-item.selected {
-  background: rgba(255, 245, 90, 0.21);
-}
-
-.transaction-item.settled {
-  text-decoration: line-through;
-  opacity: 0.7;
-}
-
-.transaction-item.paid {
-  text-decoration: none;
-  opacity: 1;
-}
-
-.ingreso {
-  color: #079f48;
-}
-
-.gasto {
-  color: #ff1800;
-}
-
-.transferencia {
-  color: #f39c12;
-}
-
-.delete-transaction-btn,
-.settled-transaction-btn {
-  padding: 3px 8px; 
-  font-size: 12px; 
-}
-
-.lock-transaction-btn {
-  font-size: 1.1em; 
-  padding: 3px; 
-  width: 16px; 
-  margin-right: 3px; 
-}
-
-.lock-transaction-btn:hover {
-  color: #7f8c8d;
-}
-
-.lock-transaction-btn.locked {
-  color: #f1c40f;
-}
-
-.lock-transaction-btn.locked:hover {
-  color: #f39c12;
-}
-
-.installment-controls {
-  gap: 4px; 
-}
-
-.installment-number {
-  font-size: 0.9em; 
-  min-width: 36px; 
-  padding: 0 2px; 
-}
-
-.installment-arrows {
-  gap: 1px; 
-}
-
-.installment-arrow {
-  width: 14px; 
-  height: 14px; 
-}
-
-.usd-amount-indicator {
-  font-size: 0.8em; 
-  padding: 1px 4px; 
-}
-
-.warning-icon {
-  font-size: 0.85em; 
-  margin-right: 4px; 
-}
-
-/* Update transaction form styles */
-/* Updated styles for type buttons */
-.type-buttons {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.type-button {
-  flex: 1;
-  padding: 8px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  font-weight: bold;
-  font-size: 0.9em;
-}
-
-.type-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-.type-button.selected {
-  background: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.8);
-}
-
-.type-button.ingreso {
-  border-color: rgba(39, 174, 96, 0.5);
-}
-
-.type-button.ingreso:hover,
-.type-button.ingreso.selected {
-  background: rgba(39, 174, 96, 0.8); 
-  border-color: rgba(39, 174, 96, 0.8);
-}
-
-.type-button.gasto {
-  border-color: rgba(231, 76, 60, 0.5);
-}
-
-.type-button.gasto:hover,
-.type-button.gasto.selected {
-  background: rgba(231, 76, 60, 0.8); 
-  border-color: rgba(231, 76, 60, 0.8);
-}
-
-.type-button.transferencia {
-  border-color: rgba(243, 156, 18, 0.5);
-}
-
-.type-button.transferencia:hover,
-.type-button.transferencia.selected {
-  background: rgba(243, 156, 18, 0.8); 
-  border-color: rgba(243, 156, 18, 0.8);
-}
-
-/* Update destination account group styles */
-#destinationAccountGroup {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  transition: all 0.3s ease;
-  max-height: 0;
-  opacity: 0;
-  margin: 0;
-  padding: 0 15px;
-  overflow: hidden;
-}
-
-#destinationAccountGroup.show {
-  max-height: 100px;
-  opacity: 1;
-  margin-bottom: 15px;
-  padding: 15px;
-}
-
-.summary-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px; /* Reduced margin */
-}
-
-.summary-header h2 {
-  font-size: 1.4em; /* Smaller font size */
-  margin-bottom: 10px; /* Reduced margin */
-}
-
-.summary-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.backup-btn {
-  /* Unified size, shape and grey color to match the "Respaldo" button */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background-color: #95a5a6; /* grey */
-  color: white;
-  padding: 6px 12px;      /* consistent internal spacing */
-  height: 36px;           /* fixed height for uniform appearance */
-  min-width: 110px;       /* ensures same button footprint */
-  border: none;
-  border-radius: 6px;     /* match rounded style used across panels */
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  white-space: nowrap;
-  transition: background-color 0.2s ease, transform 0.08s ease;
-}
-
-.backup-btn:hover {
-  background-color: #7f8c8d;
-}
-
-/* Keep sign-out red but use the same sizing/shape as other backup buttons */
-.google-signout {
-  background-color: #e74c3c; /* red like before */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 12px;
-  height: 36px;
-  min-width: 110px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  white-space: nowrap;
-}
-.google-signout:hover {
-  background-color: #c0392b;
-}
-
-.edit-all-btn {
-  
-}
-
-.edit-all-btn:hover {
-  
-}
-
-.editable {
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  transition: background-color 0.2s ease;
-}
-
-.editable:hover {
-  background-color: rgba(52, 152, 219, 0.2);
-}
-
-.edit-transaction-description,
-.edit-transaction-amount {
-  font-family: inherit;
-  font-size: inherit;
-  margin: 0;
-  background: white;
-}
-
-.transaction-description {
-  cursor: pointer;
-}
-
-/* Add new styles for editable transaction descriptions */
-.edit-transaction-description {
-  font-family: inherit;
-  font-size: inherit;
-  margin: 0;
-  background: white;
-}
-
-.transaction-description:hover {
-  background-color: rgba(52, 152, 219, 0.1);
-  border-radius: 4px;
-}
-
-/* Add new styles for installment arrows */
-.installment-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.installment-arrows {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.installment-arrow {
-  background: none;
-  border: none;
-  padding: 1px;
-  margin: 0;
-  cursor: pointer;
-  color: #666;
-  width: 14px;
-  height: 14px;
-  line-height: 1;
-  transition: color 0.2s ease;
-}
-
-.installment-arrow:hover {
-  color: #3498db;
-}
-
-.installment-number {
-  font-size: 0.9em;
-  min-width: 36px;
-  text-align: center;
-  font-weight: bold;
-  padding: 0 2px;
-}
-
-.usd-amount-indicator {
-  display: inline-block;
-  background: #f0f0f0;
-  color: #666;
-  font-size: 0.8em;
-  padding: 1px 4px;
-  border-radius: 3px;
-  white-space: nowrap;
-}
-
-.warning-icon {
-  color: #f1c40f;
-  margin-right: 4px; /* Reduced from 8px */
-  font-size: 0.85em; /* Reduced from 1em */
-}
-
-.account-name-container {
-  display: flex;
-  align-items: center;
-  gap: 3px; /* Reduced from 4px */
-  flex: 1;
-  min-width: 0; /* Allow container to shrink below content width */
-}
-
-.calculator-btn {
-  margin-top: 8px;
-  background-color: #2c3e50;
-  padding: 8px;
-}
-
-.calculator-btn:hover {
-  background-color: #34495e;
-}
-
-.calculator {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 15px;
-  max-width: 100%;
-}
-
-.calculator-display {
-  margin-bottom: 15px;
-}
-
-#calculatorInput {
-  width: 100%;
-  padding: 15px;
-  font-size: 24px;
-  text-align: right;
-  background: rgba(255, 255, 255, 0.9);
-  border: none;
-  border-radius: 4px;
-  color: #2c3e50;
-}
-
-.calculator-keys {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-}
-
-.calc-key {
-  padding: 12px;
-  font-size: 0.95em;
-  border: none;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.calc-key:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.calc-key.operator {
-  background: rgba(52, 152, 219, 0.4);
-}
-
-.calc-key.operator:hover {
-  background: rgba(52, 152, 219, 0.6);
-}
-
-.calculate-key {
-  padding: 12px;
-  font-size: 0.95em;
-  border: none;
-  border-radius: 4px;
-  background: rgba(52, 152, 219, 0.4);
-  color: white;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.calculate-key.equals {
-  background: rgba(46, 204, 113, 0.4);
-}
-
-.calculate-key.equals:hover {
-  background: rgba(46, 204, 113, 0.6);
-}
-
-.calculate-key.clear {
-  background: rgba(231, 76, 60, 0.4);
-}
-
-.calculate-key.clear:hover {
-  background: rgba(231, 76, 60, 0.6);
-}
-
-.calculate-key.return {
-  background: rgba(243, 156, 18, 0.4);
-  grid-column: span 2;
-}
-
-.calculate-key.return:hover {
-  background: rgba(243, 156, 18, 0.6);
-}
-
-.calculate-key.active {
-  background: rgba(255, 255, 255, 0.4);
-  transform: scale(0.98);
-}
-
-.hide-btn {
-  background-color: #95a5a6;
-  color: white;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  width: auto;
-  transition: all 0.3s ease;
-}
-
-.hide-btn:hover {
-  background-color: #7f8c8d;
-}
-
-.hide-btn.showing {
-  background-color: #2ecc71;
-}
-
-.hide-btn.showing:hover {
-  background-color: #27ae60;
-}
-
-/* Add styles for the backup dropdown */
-.backup-dropdown {
-  position: relative;
-  display: inline-block;
-}
-
-.backup-options {
-  display: none;
-  position: absolute;
-  top: 100%;
-  left: 0;
-  width: 100%;
-  background: white;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-  z-index: 1000;
-  min-width: 120px;
-  margin-top: 5px;
-}
-
-.backup-options.show {
-  display: block;
-  animation: fadeIn 0.2s ease;
-}
-
-.backup-option {
-  display: block;
-  width: 100%;
-  padding: 8px 16px;
-  text-align: left;
-  background: none;
-  border: none;
-  color: #333;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.backup-option:hover {
-  background-color: #f0f0f0;
-}
-
-.backup-option:not(:last-child) {
-  border-bottom: 1px solid #eee;
-}
-
-/* Update external data panel styles */
-.external-data {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 15px;
-  height: fit-content;
-  min-width: 140px; 
-  max-width: 180px;
-  display: flex;
-  flex-direction: column;
-  box-shadow: none;
-  border: none;
-  margin-left: auto; /* Push panel to the right */
-  justify-self: end; /* Align panel to the end (right) of its grid cell */
-  align-self: start; /* Align to the top */
-}
-
-.external-data h3 {
-  color: white;
-  text-align: center;
-  margin-bottom: 6px;
-  font-size: 0.9em;
-  font-weight: bold;
-  border-bottom: none;
-  padding: 0;
-}
-
-.external-data-boxes {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 0;
-}
-
-.data-content {
-  padding: 0;
-  background: none;
-  border-radius: 0;
-  min-height: 0;
-  text-align: center; 
-}
-
-.data-content p {
-  color: rgba(255, 255, 255, 0.9);
-  margin: 0;
-  font-size: 1.1em; 
-  font-weight: 700; 
-  text-align: center; 
-}
-
-.data-box {
-  padding: 6px 8px;
-  margin-bottom: 4px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
-  transition: background-color 0.2s ease;
-}
-
-.data-box:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.data-box h4 {
-  background: none;
-  color: white;
-  font-size: 0.9em;
-  margin: 0 0 4px 0;
-  padding: 0;
-  text-align: center;
-  font-weight: bold;
-  border-bottom: none;
-}
-
-.data-box:first-child {
-  background: rgba(39, 174, 96, 0.8); /* Changed to match add-account-btn green */
-  border: 1px solid rgba(39, 174, 96, 0.9);
-}
-
-.data-box:nth-child(2) {
-  background-color: rgba(231, 76, 60, 0.8); /* Red background color */
-  border: 1px solid rgba(231, 76, 60, 0.9);
-}
-
-/* Add new styles for the salon section */
-.salon-section {
-  display: grid;
-  grid-template-columns: 0.6fr 2fr 0.55fr;  
-  gap: 20px;
-  margin-top: 0;
-}
-
-.salon-registration {
-  background: linear-gradient(to right, #000000, #2c3e50) !important;
-  color: white;
-  border-radius: 8px;
-  padding: 15px;  
-  min-width: fit-content;
-  width: 100%;
-  height: 800px; /* Match the height of salon-history */
-  overflow-y: auto; /* Add scrolling if content overflows */
-  display: flex;
-  flex-direction: column;
-}
-
-.salon-registration h2 {
-  color: white !important;
-  margin-bottom: 15px; 
-  font-size: 1.3em;  
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  flex-shrink: 0; /* Prevent header from shrinking */
-}
-
-.salon-form {
-  background: rgba(255, 255, 255, 0.1);
-  padding: 12px;  
-  border-radius: 8px;
-  flex: 1; /* Allow form to fill remaining space */
-  display: flex;
-  flex-direction: column;
-  gap: 8px; /* Reduced from 12px */
-  overflow-y: auto; /* Add scrolling for form content if needed */
-}
-
-.salon-form::-webkit-scrollbar {
-  width: 6px;
-}
-
-.salon-form::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-}
-
-.salon-form::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
-}
-
-.salon-form .form-group {
-  margin-bottom: 8px; /* Reduced from 12px */
-  flex-shrink: 0; /* Prevent form groups from shrinking */
-}
-
-.salon-form label {
-  font-size: 0.9em; /* Slightly smaller font */
-  margin-bottom: 3px; /* Reduced from 5px */
-  color: white !important; /* Override any other color styles */
-}
-
-.salon-form select,
-.salon-form input:not([type="hidden"]) {
-  padding: 6px; /* Reduced from 8px */
-  font-size: 0.95em;
-}
-
-.salon-form button[type="submit"] {
-  padding: 8px; /* Reduced from 12px */
-  margin-top: 6px; /* Added small top margin */
-  font-size: 0.95em; /* Slightly smaller font */
-}
-
-.salon-sales {
-  background: rgba(255, 255, 255, 0.1);;
-  padding: 0;
-  border-radius: 8px;
-  height: 600px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-#salonSalesList {
-  padding: 0;
-  position: relative;
-  min-height: 50px;
-}
-
-.sales-header {
-  display: grid;
-  grid-template-columns: 55px 103px 80px 70px 80px 90px 80px 80px 95px 150px 62px 72px;  
-  gap: 3px;
-  align-items: center;
-  padding: 12px;
-  background: #1c1919;
-  border-bottom: 2px solid #fff;
-  font-weight: bold;
+  border:0;
+  padding:10px 14px;
+  border-radius:10px;
+  font-weight:600;
+  cursor:pointer;
+  box-shadow: 0 6px 18px rgba(224,36,36,0.08);
+}
+.danger:hover{
+  background:#c81c1c;
+}
+.spacer{flex:1}
+#search{
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid var(--subtle);
+  width:240px;
+  background:#ffffff;
+  color:var(--text);
+  box-shadow: inset 0 1px 0 rgba(16,24,40,0.02);
+}
+
+/* wrapper to keep count badge and search aligned */
+.search-wrap{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+/* small rounded badge showing total records */
+.count-badge{
+  min-width:40px;
+  height:36px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 8px;
+  border-radius:10px;
+  background: linear-gradient(180deg, rgba(11,102,255,0.12), rgba(11,102,255,0.06));
+  color: var(--accent-strong);
+  font-weight:700;
+  border:1px solid rgba(11,102,255,0.08);
+  box-shadow: inset 0 -1px 0 rgba(255,255,255,0.4);
+  font-size:13px;
+}
+
+/* Hide the numeric badge on very small screens to preserve space */
+@media (max-width:700px){
+  .count-badge{ display:none; }
+}
+
+/* Trash button beside search */
+.trash-btn{
+  min-width:44px;
+  min-height:44px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:18px;
+  padding:6px 8px;
+  border-radius:10px;
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  cursor:pointer;
+}
+.trash-btn:hover{
+  background: rgba(11,102,255,0.06);
+  color: var(--text);
+}
+
+/* Table */
+.table-wrapper{
+  background:var(--card);
+  border-radius:var(--radius);
+  padding:12px;
+  box-shadow: 0 10px 30px rgba(16,24,40,0.06);
+  overflow:auto;
+  width:100%;
+  border:1px solid var(--subtle);
+}
+.grid{
+  width:100%;
+  border-collapse:collapse;
+  min-width:0;
+  table-layout:fixed;
+}
+/* Header styling for light mode */
+.grid thead th{
+  text-align:center;
+  font-size:13px;
+  color:var(--muted);
+  padding:14px;
+  border-bottom:1px solid var(--subtle);
+  position:sticky;
+  top:0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(250,250,251,0.96));
+  white-space:normal;
+  overflow:visible;
+  text-overflow:clip;
+  line-height:1.15;
+  word-break:break-word;
+  hyphens:auto;
+  vertical-align:middle;
+  transition: color .12s ease, font-weight .12s ease;
+}
+.grid td{
+  padding:12px 14px;
+  border-bottom:1px solid rgba(15,23,42,0.04);
+  vertical-align:middle;
+  font-size:14px;
+  color:var(--text);
+  white-space:normal;
+  overflow-wrap:break-word;
+  word-break:break-word;
+  hyphens:auto;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  text-align:center;
+}
+/* Ensure header stickiness and resizer overlay remain correct */
+.grid thead th{
+  text-align:center;
+  font-size:13px;
+  color:var(--muted);
+  padding:14px;
+  border-bottom:1px solid var(--subtle);
+  position:sticky;
+  top:0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,251,0.98));
+  white-space:normal;
+  overflow:visible;
+  text-overflow:clip;
+  position:sticky;
+  z-index:2;
+  vertical-align:middle;
+  transition: color .12s ease, font-weight .12s ease;
+}
+
+/* On hover, highlight header text in darker gray */
+.grid thead th:hover {
+  color: var(--text);
+  font-weight:700;
+}
+
+/* small filter button inside headers (Registro view) */
+.col-filter{
+  appearance:none;
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  padding:4px 6px;
+  margin-left:6px;
+  border-radius:6px;
+  cursor:pointer;
+  font-size:12px;
+}
+.col-filter:hover{
+  background: rgba(11,102,255,0.06);
+  color: var(--accent);
+}
+.col-filter.active{
+  background: var(--accent);
   color: #fff;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  font-size: 0.9em;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,0.06);
 }
 
-.sales-header > span,
-.sale-item > span {
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 0px;
-}
-
-.sale-item {
-  display: grid;
-  grid-template-columns: 65px 95px 85px 65px 80px 85px 75px 75px 95px 150px 62px 72px;  
-  gap: 5.8px;
-  align-items: center;
-  padding: 3px;
-  border-bottom: 1px solid #000;
-  transition: background-color 0.2s ease, transform 0.2s ease;
-  color: #fff;
-  font-size: 0.9em;
-}
-
-.sale-item > span {
-  text-align: center;
-  white-space: nowrap;
-  padding: 0 0px;
-}
-
-.sale-item span:nth-child(5) {  
-  font-weight: 700;
-}
-
-.sale-item span:nth-child(6) {  
-  text-transform: uppercase;
-  font-size: 0.9em;
-  font-weight: 500;
-}
-
-.sale-item span:nth-child(9) {  
-  font-weight: normal;
-}
-
-.sale-item span:nth-child(4) {  
-  font-weight: 700;
-}
-
-.sale-item:hover {
-  background-color: rgba(255, 245, 90, 0.21);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-
-.sale-item.dragging {
-  opacity: 0.5;
-  background: #f8f9fa;
-  cursor: grabbing;
-  transform: scale(1.02);
-  z-index: 1000;
-}
-
-.sale-item.drag-over {
-  border-top: 2px solid #3498db;
-}
-
-.sale-actions {
-  display: flex;
-  gap: 5px;
-}
-
-.delete-sale-btn {
-  background: none;
-  color: #e74c3c;
-  padding: 4px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-}
-
-.delete-sale-btn:hover {
-  color: #c0392b;
-}
-
-.delete-sale-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.payment-date-selector {
-  padding: 6px 8px !important;
-  border: 1px solid #000 !important;
-  border-radius: 4px !important;
-  font-size: 0.98em !important;
-  width: 130px !important; /* Reduced from 150px but still enough to show full date */
-  cursor: pointer;
-  transition: border-color 0.3s ease;
-  background: #f9f9f9;
-}
-
-.payment-date-selector:hover {
-  border-color: #3498db !important;
-}
-
-.payment-date-selector:focus {
-  outline: none;
-  border-color: #3498db !important;
-  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
-}
-
-.hairdresser-total {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px;
-  margin-bottom: 15px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 6px;
-  border: 1px solid #e9ecef;
-  color: #333;
-}
-
-.hairdresser-total h4 {
-  color: #666;
-  font-weight: bold;
-  font-size: 1em;
-}
-
-.hairdresser-total span {
-  color: #666;
-  font-size: 1em;
-}
-
-.hairdresser-buttons {
-  display: flex;
-  gap: 6px; /* Reduced from 8px */
-  margin-bottom: 8px; /* Reduced from 12px */
-}
-
-.hairdresser-button {
-  padding: 8px 12px; /* Increased padding */
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  font-weight: bold;
-  font-size: 0.95em; /* Increased font size */
-}
-
-.hairdresser-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.hairdresser-button.selected {
-  background: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.8);
-}
-
-.payment-button {
-  flex: 1;
-  padding: 6px 10px; /* Reduced padding */
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  font-weight: bold;
-  font-size: 0.85em; /* Slightly smaller font */
-}
-
-.payment-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.payment-button.selected {
-  background: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.8);
-}
-
-.hairdresser-buttons,
-.payment-buttons {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-/* Update totals panel styles */
-.totals-panel {
-  background: rgba(255, 255, 255, 0.1);
-  border: 0px solid #e9ecef;
-  border-radius: 8px;
-  padding: 15px;
-  margin: -20px 20px 20px 20px; /* Changed from -10px to -20px to move panel up more */
-}
-
-.totals-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  font-size: 1em;
-}
-
-.total-item {
-  padding: 6px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: #2b2828;
-  border-radius: 4px;
-  border: 0px solid #e9ecef;
-}
-
-.total-label {
-  font-weight: 600;
-  color: #fff;
-  font-size: 0.95em;
-  white-space: nowrap;
-}
-
-.total-item .total-value {
-  color: #fff;
-  margin-left: 8px;
-  font-size: 0.95em;
-  font-weight: 600;
-}
-
-.total-item .total-value.negative {
-  color: #e74c3c;
-}
-
-.total-item .total-value.positive {
-  color: #27ae60;
-}
-
-.commission-rates {
-  font-size: 0.95em;
-  white-space: nowrap;
-  font-weight: 500;
-}
-
-.commission-rate, 
-.iva-rate {
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  transition: all 0.3s ease;
-  color: #ff0404; /* Bright red color */
-  font-weight: 600;
-  background: rgba(41, 128, 185, 0.1); /* Light blue background */
-}
-
-.commission-rate:hover, 
-.iva-rate:hover {
-  background: rgba(41, 128, 185, 0.2); /* Darker blue background on hover */
-  color: #2471a3; /* Slightly darker blue on hover */
-}
-
-.commission-rate[data-type="debito"] {
-  color: #27ae60; /* Green for debit */
-  background: rgba(39, 174, 96, 0.1);
-}
-
-.commission-rate[data-type="debito"]:hover {
-  background: rgba(39, 174, 96, 0.2);
-  color: #219a52;
-}
-
-.commission-rate[data-type="credito"] {
-  color: #e67e22; /* Orange for credit */
-  background: rgba(230, 126, 34, 0.1);
-}
-
-.commission-rate[data-type="credito"]:hover {
-  background: rgba(230, 126, 34, 0.2);
-  color: #d35400;
-}
-
-.edit-commission-rate {
-  color: #000;
-  background: white;
-  border: 1px solid currentColor;
-  border-radius: 4px;
-  font-weight: 600;
-  padding: 1px 1px;
-}
-
-.header-indicator input[type="number"] {
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.9);
-}
-
-/* To ensure the calendar icon stays proportional */
-input[type="date"]::-webkit-calendar-picker-indicator {
-  font-size: 1.1em;
-  cursor: pointer;
-  padding: 4px;
-}
-
-/* To ensure date inputs in all sections have consistent sizing */
-.transaction-section input[type="date"],
-.salon-registration input[type="date"],
-.date-filter-input {
-  font-size: 1.1em;
-}
-
-/* Update the Total Abonos panel styles */
-.total-abonos-panel {
-  background: linear-gradient(to right, #000000, #2c3e50);
-  color: #fff;
-  border-radius: 8px;
-  padding: 0px;
-  height: 800px;  
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center; 
-  gap: 12px;
-}
-
-.total-abonos-panel h2 {
-  color: #fff;
-  padding-bottom: 10px;
-  margin-bottom: -1px;
-  position: sticky;
-  top: 0;
-  background: #27ae60;;
-  z-index: 1;
-  width: 115%;
-  text-align: center;
-  padding: 15px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-/* Add new styles for the paid transactions total */
-.paid-transactions-total {
-  background: #27ae60;
-  color: white;
-  padding: 12px; 
-  border-radius: 0px; 
-  margin-top: -12px;
-  width: 117%;
-  max-width: 300px; 
-  text-align: center;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  position: sticky;
-  top: 68px;
-  z-index: 1;
-}
-
-.paid-transactions-amount {
-  font-size: 1.5em; 
-  font-weight: 700;
-  color: white;
-}
-
-.daily-totals-panel {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 12px;
-  width: 100%;
-  max-width: 280px; 
-}
-
-.daily-totals-panel h3 {
-  color: #fff;
-  margin-bottom: 12px;
-  font-size: 1em;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e9ecef;
-}
-
-.daily-totals-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.daily-total-item {
-  background: #c8b0b01c;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 0px solid #e9ecef;
-  display: flex;
-  flex-direction: row; 
-  justify-content: space-between;
-  align-items: center;
-}
-
-.daily-total-item.total-day {
-  background: #edf2f7;
-}
-
-.daily-total-item.total-day .daily-total-label,
-.daily-total-item.total-day .daily-total-value {
-  font-weight: 700;
-  color: #2c3e50;
-}
-
-.daily-total-label {
-  font-weight: 600;
-  color: #fff;
-  font-size: 0.9em;
-}
-
-.daily-total-value {
-  color: #fff;
-  font-weight: 600;
-  font-size: 0.9em;
-}
-
-/* Add new styles for the paid button */
-.daily-paid-btn {
-  width: 100%;
-  padding: 8px;
-  margin-top: 12px;
-  background: #bb3131;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9em;
-  width: 100%;
-  transition: all 0.3s ease;
-}
-
-.daily-paid-btn:hover {
-  background: #27ae60;
-}
-
-.daily-paid-btn.paid {
-  background: #27ae60;
-}
-
-.daily-paid-btn.paid:hover {
-  background: #bb3131;
-}
-
-.sale-item .payment-status {
-  font-size: 1.4em;
-  font-weight: bold;
-}
-
-.sale-item .payment-status.paid {
-  color: #27ae60;  
-}
-
-.sale-item .payment-status.unpaid {
-  color: #e74c3c;  
-}
-
-.payment-type {
-  text-transform: uppercase;
-  font-size: 0.9em;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: visible;
-  text-overflow: unset;
-  padding: 0 4px;
-  min-width: max-content;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.payment-type.efectivo {
-  color: #27ae60; /* Green */
-}
-
-.payment-type.debito {
-  color: #3498db; /* Blue */
-}
-
-.payment-type.credito {
-  color: #e67e22; /* Orange */
-}
-
-/* Add new styles for salon history */
-.salon-history {
-  position: relative;
-  height: 800px;  
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.salon-filter-buttons {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  display: inline-flex;
-  gap: 10px;
-}
-
-.filter-btn {
-  background-color: #3498db;
-  color: white;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: all 0.3s ease;
-  height: 34px;
-  display: flex;
-  align-items: center;
-}
-
-.filter-btn:hover {
-  background-color: #2980b9;
-}
-
-.filter-btn.active {
-  background-color: #27ae60;
-}
-
-.salon-history h2 {
-  margin-bottom: 60px; 
-}
-
-.date-filter-container {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.date-filter-input {
-  padding: 6px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 12px;
-  height: 34px;
-  width: !important;
-  cursor: pointer;
-  transition: border-color 0.3s ease;
-  background: #f9f9f9;
-}
-
-.date-filter-input:hover {
-  border-color: #3498db;
-}
-
-.date-filter-input:focus {
-  outline: none;
-  border-color: #3498db;
-  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
-}
-
-#dateFilter.active {
-  background-color: #27ae60;
-}
-
-.total-item.total-neto-tarjeta,
-.total-item:nth-child(2),
-.total-item:nth-child(8) {  
-  background-color: #27ae60; 
-}
-
-/* Add styles for the delete-all button */
-.delete-all-btn {
-  background-color: #e74c3c;
-  color: white;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: all 0.3s ease;
-  height: 34px;
-  display: flex;
-  align-items: center;
-}
-
-.delete-all-btn:hover {
-  background-color: #c0392b;
-}
-
-/* Add new styles for the lock button */
-.lock-transaction-btn {
-  color: #95a5a6;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1.1em;
-  padding: 3px;
-  width: 16px;
-  transition: color 0.2s ease;
-  margin-right: 3px;
-}
-
-.lock-transaction-btn:hover {
-  color: #7f8c8d;
-}
-
-.lock-transaction-btn.locked {
-  color: #f1c40f;
-}
-
-.lock-transaction-btn.locked:hover {
-  color: #f39c12;
-}
-
-/* Add new styles for editable account name */
-.account-name {
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  transition: background-color 0.2s ease;
-}
-
-.account-name.editable:hover {
-  background-color: rgba(240, 53, 53, 0.37);
-}
-
-.edit-account-name {
-  color: white;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-.edit-account-name:focus {
-  outline: none;
-  border-color: rgba(255, 255, 255, 0.5);
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.account-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 12px; /* Reduced padding from 8px 15px */
-  gap: 10px; /* Reduced gap from 15px */
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
-  margin-bottom: 3px; /* Reduced from 4px */
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-  font-size: 0.9em;
-  min-height: 32px; /* Added explicit min-height for consistency */
-}
-
-.account-name {
-  font-weight: bold;
-  margin-right: 4px; /* Reduced from 6px */
-}
-
-.account-balance {
-  font-family: inherit;
-  font-size: 1.2em; /* Increased from 1.1em as requested in previous prompt */
-  color: rgba(255, 255, 255, 0.9);
-  white-space: nowrap;
-  font-weight: bold;
-}
-
-.account-name-container {
-  display: flex;
-  align-items: center;
-  gap: 3px; /* Reduced from 4px */
-  flex: 1;
-  min-width: 0;
-}
-
-.account-item.selected { 
-  background-color: rgba(255, 245, 90, 0.21);
-}
-
-.transaction-amount {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-/* Estilos para el modal */
-.modal {
-  display: none;
-  position: fixed;
-  z-index: 1000;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0,0,0,0.5);
-  animation: fadeIn 0.3s ease;
-}
-
-.modal-content {
-  background-color: #fff;
-  margin: 10% auto;
-  padding: 30px;
-  border-radius: 8px;
-  width: 90%;
-  max-width: 500px;
-  position: relative;
-  animation: slideIn 0.3s ease;
-}
-
-.close {
-  position: absolute;
-  right: 20px;
-  top: 15px;
-  font-size: 28px;
-  font-weight: bold;
-  color: #666;
-  cursor: pointer;
-  transition: color 0.3s ease;
-}
-
-.close:hover {
-  color: #000;
-}
-
-textarea {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 16px;
-  font-family: inherit;
-  resize: vertical;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slideIn {
-  from { transform: translateY(-50px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-.installment-fields {
-  display: none;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 15px;
-  border-radius: 8px;
-  margin-bottom: 15px;
-}
-
-input[type="date"] {
-  font-size: 1.1em; /* Increased from default */
-  padding: 8px;
-  border: 1px solid #000;
-  border-radius: 4px;
-  font-family: inherit;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-}
-
-/* To ensure the calendar icon stays proportional */
-input[type="date"]::-webkit-calendar-picker-indicator {
-  font-size: 1.1em;
-  cursor: pointer;
-  padding: 4px;
-}
-
-/* Update payment button styles to match hairdresser buttons */
-.payment-buttons {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.payment-button {
-  flex: 1;
-  padding: 6px 10px; /* Reduced padding */
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  font-weight: bold;
-  font-size: 0.85em; /* Slightly smaller font */
-}
-
-.payment-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.payment-button.selected {
-  background: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.8);
-}
-
-.figaro-header {
-  background: linear-gradient(to right, #000000, #2c3e50);
-  color: white;
-  border-radius: 8px;
-  padding: 10px 15px; /* Reduced padding */
-  margin: 20px 0; /* Keep margin */
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-  display: flex; /* Added to align items horizontally */
-  align-items: center; /* Center items vertically */
-  gap: 20px; /* Space between title and panel */
-  justify-content: space-between; /* Add this to push button to right */
-}
-
-.figaro-header h2 {
-  color: white !important;
-  margin: 0;
-  font-size: 1.2em;
-  font-weight: 700;
-  white-space: nowrap; /* Prevent title from wrapping */
-  min-width: max-content; /* Ensure title doesn't shrink */
-}
-
-.figaro-year-btn {
-  background-color: rgba(255, 255, 255, 0.1);
-  color: white;
-  padding: 6px 12px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9em;
-  font-weight: bold;
-  transition: all 0.3s ease;
-  min-width: 100px; /* Added narrower width */
-  max-width: 120px; /* Added maximum width */
-  white-space: nowrap; /* Prevent text wrapping */
-}
-
-.figaro-year-btn:hover {
-  background-color: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-.black-panel {
-  background: #0000;
-  flex: 1; /* Take remaining space */
-  height: 60px; /* Reduced height */
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 15px;
-  padding: 10px 15px; /* Reduced padding */
-}
-
-.black-panel-button {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  padding: 8px 16px; /* Reduced padding */
-  font-size: 0.95em; /* Reduced font size */
-  font-weight: bold;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  min-width: 100px; /* Reduced min-width */
-  text-align: center;
-}
-
-.black-panel-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-.black-panel-button.selected {
-  background: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.8);
-}
-
-.aldo-panels {
-  display: none; /* Hidden by default */
-  grid-template-columns: 1.9fr 0.5fr; /* Adjusted ratio to match "Registrar Ventas" width */
-  gap: 20px;
-  margin-top: 20px;
-  margin-bottom: 20px;
-}
-
-.aldo-panels.show {
-  display: grid;
-}
-
-.aldo-panel {
-  background: linear-gradient(to right, #000, #2c3e50) !important;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  height: 300px; /* Default height for first row panels */
-  display: flex;
-  flex-direction: column;
-}
-
-.ventas-aldo,
-.boletas-aldo {
-  height: 510px; /* 300px + 70% = ~510px */
-}
-
-.aldo-panel h3 {
-  color: #fff;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-}
-
-/* Add new styles for Marcos' panels with the same configuration as Aldo's */
-.marcos-panels {
-  display: none; /* Hidden by default */
-  grid-template-columns: 1.9fr 0.5fr; /* Same ratio as Aldo's panels */
-  gap: 20px;
-  margin-top: 20px;
-  margin-bottom: 20px;
-}
-
-.marcos-panels.show {
-  display: grid;
-}
-
-.marcos-panel {
-  background: linear-gradient(to right, #000, #2c3e50) !important;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  height: 300px; /* Default height for first row panels */
-  display: flex;
-  flex-direction: column;
-}
-
-.ventas-marcos,
-.boletas-marcos {
-  height: 510px; /* Same height as Aldo's panels */
-}
-
-.marcos-panel h3 {
-  color: #fff;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-}
-
-/* Add new styles for Otro's panels with the same configuration as Aldo's and Marcos' */
-.otro-panels {
-  display: none; /* Hidden by default */
-  grid-template-columns: 1.9fr 0.5fr; /* Same ratio as Aldo's panels */
-  gap: 20px;
-  margin-top: 20px;
-  margin-bottom: 20px;
-}
-
-.otro-panels.show {
-  display: grid;
-}
-
-.otro-panel {
-  background: linear-gradient(to right, #000, #2c3e50) !important;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  height: 300px; /* Default height for first row panels */
-  display: flex;
-  flex-direction: column;
-}
-
-.ventas-otro,
-.boletas-otro {
-  height: 510px; /* Same height as Aldo's panels */
-}
-
-.otro-panel h3 {
-  color: #fff;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-}
-
-/* Add new styles for the ventas panel */
-.ventas-aldo .aldo-content {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.ventas-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-}
-
-.ventas-table-header {
-  display: grid;
-  grid-template-columns: 0.8fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
-  gap: 10px;
-  padding: 10px;
-  background: #000;
-  border-bottom: 2px solid #fff;
-  font-weight: bold;
-  color: #fff;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-.ventas-table-row {
-  display: grid;
-  grid-template-columns: 0.8fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
-  gap: 10px;
-  padding: 8px 10px;
-  border-bottom: 1px solid #3c3c3c;
-  align-items: center;
-}
-
-.ventas-table-row:hover {
-  background-color: rgba(255, 245, 90, 0.21);
-}
-
-.ventas-table-cell {
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-}
-
-.ventas-table-cell.amount {
-  text-align: center; /* Changed from 'right' to 'center' */
-  font-family: sans;
-  font-size: 1em;
-  font-weight: 700;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.payment-type {
-  text-transform: uppercase;
-  font-size: 0.9em;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: visible;
-  text-overflow: unset;
-  padding: 0 4px;
-  min-width: max-content;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Add styles for Marcos' ventas panel */
-.ventas-marcos .marcos-content {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.marcos-content .ventas-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-}
-
-.marcos-content .ventas-table-header,
-.marcos-content .ventas-table-row {
-  display: grid;
-  grid-template-columns: 0.8fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
-  gap: 10px;
-  padding: 8px 10px;
-  align-items: center;
-}
-
-.marcos-content .ventas-table-header {
-  background: #000;
-  border-bottom: 2px solid #fff;
-  font-weight: bold;
-  color: #fff;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 10px;
-}
-
-.marcos-content .ventas-table-row {
-  border-bottom: 1px solid #3c3c3c;
-}
-
-.marcos-content .ventas-table-row:hover {
-  background-color: rgba(255, 245, 90, 0.21);
-}
-
-.marcos-content .ventas-table-cell {
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.marcos-content .ventas-table-cell.amount {
-  text-align: center;
-  font-family: sans;
-  font-size: 0.9em;
-  font-weight: 700;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Add new styles for Otro's ventas panel */
-.ventas-otro .otro-content {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.otro-content .ventas-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-}
-
-.otro-content .ventas-table-header,
-.otro-content .ventas-table-row {
-  display: grid;
-  grid-template-columns: 0.8fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
-  gap: 10px;
-  padding: 8px 10px;
-  align-items: center;
-}
-
-.otro-content .ventas-table-header {
-  background: #000;
-  border-bottom: 2px solid #fff;
-  font-weight: bold;
-  color: #fff;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 10px;
-}
-
-.otro-content .ventas-table-row {
-  border-bottom: 1px solid #3c3c3c;
-}
-
-.otro-content .ventas-table-row:hover {
-  background-color: rgba(255, 245, 90, 0.21);
-}
-
-.otro-content .ventas-table-cell {
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.otro-content .ventas-table-cell.amount {
-  text-align: center;
-  font-family: sans;
-  font-size: 0.9em;
-  font-weight: 700;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Add new styles for the header indicators */
-.panel-header-container {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #eee;
-  margin-bottom: 12px;
-}
-
-.header-indicators {
-  display: flex;
-  gap: 15px;
-}
-
-.header-indicator {
-  background: rgba(52, 152, 219, 0.1);
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 0.85em;
-  color: #fff;
-  font-weight: 600;
-}
-
-.header-indicator span {
-  font-weight: 700;
-  color: #f00;
-}
-
-/* Update the grid templates for all ventas tables */
-.ventas-table-header,
-.ventas-table-row {
-  display: grid;
-  grid-template-columns: 0.8fr 1.2fr 1.3fr 1.3fr 1.3fr 1fr 1fr 1.3fr; /* Adjusted ratios for better spacing */
-  gap: 15px;
-  padding: 8px 15px;
-  align-items: center;
-  width: 100%;
-}
-
-/* Update specific ventas panel table styles */
-.ventas-aldo .ventas-table-header,
-.ventas-aldo .ventas-table-row,
-.ventas-marcos .ventas-table-header,
-.ventas-marcos .ventas-table-row,
-.ventas-otro .ventas-table-header,
-.ventas-otro .ventas-table-row {
-  grid-template-columns: 0.8fr 1.2fr 1.3fr 1.3fr 1.3fr 1fr 1fr 1.3fr; /* Adjusted ratios for better spacing */
-}
-
-.ventas-table-cell {
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-}
-
-.ventas-table-cell.amount {
-  text-align: center; /* Changed from 'right' to 'center' */
-  font-family: sans;
-  font-size: 0.9em;
-  font-weight: 700;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Make the containers use full width */
-.aldo-content,
-.marcos-content,
-.otro-content {
-  width: 100%;
-  padding: 0 15px; /* Add some padding on the sides */
-}
-
-.ventas-table {
-  width: 100%;
-  min-width: 100%;
-}
-
-/* Add new styles for the weekly summary panel */
-.week-summary-card {
-  flex: 0 0 220px; /* Reduced from 280px */
-  background: white;
-  border: 0px solid #e9ecef;
-  border-radius: 8px;
-  padding: 10px; /* Reduced from 15px */
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-  font-size: 0.9em; /* Slightly smaller font size */
-}
-
-.week-summary-card h4 {
-  color: #2c3e50;
-  margin-bottom: 8px; /* Reduced from 12px */
-  padding-bottom: 6px; /* Reduced from 8px */
-  border-bottom: 0px solid #eee;
-  font-size: 1em;
-  font-weight: 600;
-  text-align: center;
-}
-
-.week-summary-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 6px; /* Reduced from 8px */
-}
-
-.week-summary-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 8px; /* Reduced from 8px 12px */
-  background: white;
-  border-radius: 4px;
-  border: 0px solid #e9ecef;
-}
-
-.summary-label {
-  color: #fff;
-  font-weight: 600;
-  font-size: 0.85em; /* Reduced from 0.9em */
-}
-
-.summary-value {
-  color: #fff;
-  font-weight: 600;
-  font-size: 0.9em; /* Increased from 0.9em */
-  font-family: sans;
-}
-
-.aldo-panel.semanas-aldo .aldo-content {
-  display: flex;
-  flex-direction: row;
-  gap: 10px; /* Reduced from 15px */
-  padding: 10px; /* Reduced from 15px */
-  overflow-x: auto;
-  min-height: 0;
-}
-
-.aldo-panel.semanas-aldo .aldo-content::-webkit-scrollbar {
-  height: 8px;
-}
-
-.aldo-panel.semanas-aldo .aldo-content::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-.aldo-panel.semanas-aldo .aldo-content::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
-}
-
-.aldo-panel.semanas-aldo .aldo-content::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
-
-.aldo-panel.semanas-aldo {
-  overflow-y: auto;
-}
-
-.aldo-panel.semanas-aldo .aldo-content {
-  padding: 15px;
-}
-
-/* Ensure consistent spacing in all hairdresser panels */
-.marcos-panel.semanas-marcos .marcos-content,
-.otro-panel.semanas-otro .otro-content {
-  display: flex;
-  flex-direction: row;
-  gap: 10px;
-  padding: 10px;
-  overflow-x: auto;
-  min-height: 0;
-}
-
-.aldo-panel.semanas-aldo .aldo-content {
-  display: flex;
-  flex-direction: row;
-  gap: 10px;
-  padding: 10px;
-  overflow-x: auto;
-  min-height: 0;
-  width: 100%; /* Ensure full width */
-}
-
-.week-summary-card {
-  flex: 1; /* Make cards grow equally */
-  min-width: 220px; /* Minimum width to prevent too much squishing */
-  background: rgba(255, 255, 255, 0.1);
-  border: 0px solid #e9ecef;
-  border-radius: 8px;
-  padding: 10px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-  font-size: 0.9em;
-}
-
-.week-summary-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%; /* Ensure grid uses full width */
-}
-
-.week-summary-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 8px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  border: 0px solid #e9ecef;
-  width: 100%; /* Ensure items use full width */
-}
-
-.marcos-panel.semanas-marcos .marcos-content,
-.otro-panel.semanas-otro .otro-content {
-  display: flex;
-  flex-direction: row;
-  gap: 10px;
-  padding: 10px;
-  overflow-x: auto;
-  min-height: 0;
-  width: 100%;
-}
-
-.aldo-panel h3,
-.marcos-panel h3,
-.otro-panel h3 {
-  color: #fff;
-  margin-bottom: 10px; 
-  padding-bottom: 6px; 
-  font-size: 1em; 
-  font-weight: 600;
-}
-
-.panel-header-container {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 8px; 
-  border-bottom: 1px solid #eee;
-  margin-bottom: 12px; 
-}
-
-.panel-header-container h3 {
-  margin-bottom: 0; 
-}
-
-.week-summary-card h4 {
-  color: #fff;
-  margin-bottom: 8px; 
-  padding-bottom: 6px;
-  border-bottom: 0px solid #eee;
-  font-size: 1.0em; 
-  font-weight: 600;
-  text-align: center;
-}
-
-/* Add styles for totales panel */
-.totales-aldo .aldo-content,
-.totales-marcos .marcos-content,
-.totales-otro .otro-content {
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.marcos-panel.totales-marcos .marcos-content,
-.otro-panel.totales-otro .otro-content {
-  display: flex;
-  flex-direction: column;
-  gap: 6px; /* Reduced from 8px to match semanas panel */
-  padding: 10px;
-}
-
-.final-total-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 18px; /* Reduced padding */
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  border: 0px solid #e9ecef;
-}
-
-.final-total-label {
-  color: #fff;
-  font-weight: 600;
-  font-size: 0.85em; /* Match semanas panel */
-}
-
-.final-total-value {
-  color: #fff;
-  font-weight: 600;
-  font-size: 0.9em; /* Increased for better readability */
-  font-family: sans;
-}
-
-.totales-aldo .panel-header-container {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #eee;
-  margin-bottom: 12px;
-}
-
-.totales-aldo .panel-header-container h3 {
-  margin: 0;
-  padding: 0;
-}
-
-.totales-aldo .header-indicators {
-  display: flex;
-  gap: 15px;
-}
-
-.totales-aldo .header-indicator {
-  background: rgba(52, 152, 219, 0.1);
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 0.85em;
-  color: #fff;
-  font-weight: 600;
-}
-
-.totales-aldo .header-indicator .commission-value {
-  font-weight: 700;
-  color: #f00;
-}
-
-.totales-aldo .header-indicator .commission-value:hover {
-  background-color: rgba(52, 152, 219, 0.1);
-  border-radius: 4px;
-  padding: 2px 4px;
-}
-
-.daily-sales-card {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 10px;
-  font-size: 0.9em;
-}
-
-.daily-sales-card h4 {
-  color: #fff;
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #eee;
-  font-size: 1em;
-  font-weight: 600;
-}
-
-.daily-sales-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.daily-sales-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  background: #c8b0b01c;
-  border-radius: 4px;
-  border: 0px solid #e9ecef;
-  gap: 15px; /* Added gap between label/input and value */
-}
-
-.daily-sales-item.total-day {
-  background: #000;
-}
-
-.daily-sales-item .daily-sales-label {
-  color: #fff;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 20px; /* Increased from 10px to create more space */
-  flex: 1; /* Allow label to take available space */
-  justify-content: space-between; /* Space between text and input */
-}
-
-.daily-sales-item .boleta-input {
-  width: 52px; /* Slightly wider */
-  padding: 4px 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 0.9em;
-  text-align: center;
-  margin-left: auto; /* Push input to the right */
-  margin-right: 15px; /* Add space between input and amount */
-}
-
-.daily-sales-value {
-  color: #fff;
-  font-weight: 700;
-  font-family: sans;
-  font-size: 1.0em;
-}
-
-.aldo-panel.boletas-aldo {
-  height: 510px;
-  overflow-y: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.aldo-panel.boletas-aldo h3 {
-  flex-shrink: 0;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #eee;
-}
-
-.aldo-panel.boletas-aldo .aldo-content {
-  flex: 1;
-  overflow-y: auto;
-  padding-right: 10px; /* Add padding for scrollbar */
-  margin-right: -10px; /* Offset padding to maintain alignment */
-}
-
-.aldo-panel.boletas-aldo .aldo-content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.aldo-panel.boletas-aldo .aldo-content::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-.aldo-panel.boletas-aldo .aldo-content::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
-}
-
-.aldo-panel.boletas-aldo .aldo-content::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
-
-.figaro-summary-panels {
-  display: grid;
-  grid-template-columns: 1.9fr 0.5fr; /* Match ratio of Aldo panels */
-  gap: 20px;
-  margin: 20px 0;
-}
-
-.figaro-panel {
-  background: linear-gradient(to right, #000000, #2c3e50);
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  height: 400px; /* Increased from 300px */
-  display: flex;
-  flex-direction: column;
-}
-
-.figaro-panel h3 {
-  color: white;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.figaro-content {
-  flex: 1;
-  overflow-y: auto;
-  color: white;
-}
-
-.figaro-content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.figaro-content::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-}
-
-.figaro-content::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 4px;
-}
-
-.figaro-content::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
-}
-
-.figaro-semanas-panel {
-  background: linear-gradient(to right, #000000, #2c3e50);
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  margin: 20px 0;
-  width: 100%;
-  height: 505px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.figaro-semanas-panel h3 {
-  color: white;
-  margin-bottom: -4px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  flex-shrink: 0;
-}
-
-.figaro-semanas-content {
-  display: flex; /* Keep flex display */
-  gap: 19px;
-  padding: 15px;
-  width: 100%;
-  height: 90%;
-  overflow-x: auto; /* Keep this in case it's still needed */
-}
-
-.figaro-totals-labels {
-  flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  padding: 14px 20px;
-  min-width: 200px; 
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  height: fit-content;
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  margin-top: 66px;
-}
-
-.figaro-totals-labels .total-label {
-  color: white;
-  font-weight: 700; 
-  font-size: 0.85em;
-  line-height: 1.2;
-  padding: 6px 8px;
-  white-space: nowrap;
-}
-
-.figaro-totals-labels .total-label:nth-last-child(5) {
-  color: #3498db; /* Same blue as venta-semanal */
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  padding: 6px;
-}
-
-.figaro-totals-labels .total-label:nth-last-child(4) {
-  color: white;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  padding: 6px;
-}
-
-.figaro-totals-labels .total-label:nth-last-child(3) {
-  color: white;
-  background: rgba(39, 174, 96, 0.8);
-  border-radius: 4px;
-  padding: 6px;
-}
-
-.figaro-totals-labels .total-label:nth-last-child(2) {
-  color: #e74c3c;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  padding: 6px;
-}
-
-.figaro-totals-labels .total-label:last-child {
-  color: #f1c40f;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  padding: 6px;
-}
-
-.venta-semanal {
-  color: #3498db;
-  margin-top: 6px;
-  padding: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  font-weight: 700;
-  font-size: 0.9em;
-  text-align: center;
-  width: 100%;
-  line-height: 1.2;
-}
-
-.porc-semanal {
-  margin-top: 6px;
-  padding: 6px;
-  background: rgba(39, 174, 96, 0.8); /* Changed to green */
-  border-radius: 4px;
-  color: white; /* Changed to white */
-  font-weight: 700;
-  font-size: 0.9em;
-  text-align: center;
-  width: 100%;
-  line-height: 1.2;
-}
-
-.diferencia-semanal {
-  margin-top: 6px;
-  padding: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  color: #e74c3c; /* Changed to red (#e74c3c) */
-  font-weight: 700;
-  font-size: 0.9em;
-  text-align: center;
-  width: 100%;
-  line-height: 1.2;
-}
-
-.value-row {
-  color: white;
-  font-size: 0.85em;
-  text-align: right;
-  padding: 6px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 4px;
-  white-space: nowrap;
-  line-height: 1.2;
-  display: flex; 
-  justify-content: center; 
-  align-items: center; 
-}
-
-.hairdresser-column {
-  display: flex;
-  flex-direction: column;
-  gap: 6px; 
-  flex: 1;
-}
-
-.venta-semanal,
-.venta-tarjeta-semanal {
-  margin-top: 6px; /* Match the gap */
-  padding: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  font-weight: 700;
-  font-size: 0.9em;
-  text-align: center;
-  width: 100%;
-  line-height: 1.2;
-  color: white; /* Added to make the text white */
-}
-
-.venta-semanal {
-  color: #3498db; /* Keep venta-semanal blue */
-}
-
-.week-summary-container {
-  flex: 0 0 auto;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  padding: 14px;
-  min-width: 279px;
-  max-width: 280px;
-  min-height: 404px;
-}
-
-.week-summary-container h4 {
-  color: white;
-  margin-bottom: 8px;
-  text-align: center;
-  font-size: 0.9em;
-  opacity: 0.9;
-}
-
-.hairdresser-values {
-  display: grid;
-  gap: 8px;
-  width: 100%;
-}
-
-.hairdresser-values {
-  display: grid;
-  gap: 8px;
-  width: 100%;
-}
-
-.hairdresser-values:has(.hairdresser-column:only-child) {
-  grid-template-columns: 1fr;
-}
-
-.hairdresser-values:has(.hairdresser-column:nth-child(2):last-child) {
-  grid-template-columns: repeat(2, 1fr);
-}
-
-.hairdresser-values:has(.hairdresser-column:nth-child(3)) {
-  grid-template-columns: repeat(3, 1fr);
-}
-
-.hairdresser-column {
-  display: flex;
-  flex-direction: column;
-  gap: 6px; /* Match the gap in figaro-totals-labels */
-  flex: 1;
-}
-
-.hairdresser-column h5 {
-  margin: 0;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.85em;
-  margin-bottom: 11px;
-}
-
-.value-row {
-  color: white;
-  font-size: 0.85em;
-  text-align: right;
-  padding: 6px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 4px;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-
-.prom-porc-semanal {
-  margin-top: 6px;
-  padding: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  color: #f1c40f; /* Yellow color for text */
-  font-weight: 700;
-  font-size: 0.9em;
-  text-align: center;
-  width: 100%;
-  line-height: 1.2;
-}
-
-.figaro-subpanels {
-  display: grid;
-  grid-template-columns: 1fr 1fr; /* Two equal columns */
-  gap: 20px;
-  height: 100%;
-  padding: 15px;
-}
-
-.figaro-subpanel {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  padding: 15px;
-  min-height: 300px;
-}
-
-.figaro-subpanel h4 {
-  color: white;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 1em; /* Reduced font size from 1.1em to 1em */
-  font-weight: 600;
-}
-
-.figaro-subpanel {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  padding: 15px;
-  min-height: 300px; /* Increased height */
-  display: flex; /* Enable flexbox for subpanel content */
-  flex-direction: column; /* Stack header and content vertically */
-}
-
-.figaro-subpanel h4 {
-  color: white;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 1em; /* Reduced font size from 1.1em to 1em */
-  font-weight: 600;
-  flex-shrink: 0; /* Prevent header from shrinking */
-}
-
-.figaro-subpanel-content {
-  height: calc(100% - 45px);
-  overflow-y: auto;
-  flex-grow: 1; /* Allow content to take available space */
-  display: flex; /* Enable flexbox for table layout */
-  flex-direction: column; /* Stack table header and body vertically */
-}
-
-.totales-table {
-  width: 100%;
-  height: 100%;
-  border-collapse: collapse;
-  font-size: 0.95em;
-  display: flex; /* Enable flexbox for table structure */
-  flex-direction: column; /* Stack thead and tbody vertically */
-}
-
-.totales-table thead,
-.totales-table tbody {
-  display: block; /* Ensure thead and tbody behave as blocks within flexbox */
-  width: 100%; /* Make thead and tbody take full width */
-}
-
-.totales-table thead {
-  flex-shrink: 0; /* Prevent header from shrinking */
-}
-
-.totales-table tbody {
-  overflow-y: auto; /* Enable vertical scrolling for tbody */
-  flex-grow: 1; /* Allow tbody to take available vertical space */
-}
-
-.totales-table th {
-  padding: 6px;
-  text-align: center;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-weight: 700;
-  white-space: nowrap;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1); /* Add border to header cells */
-}
-
-.totales-table td {
-  padding: 6px;
-  text-align: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
-  display: block; /* Make td behave as block for grid layout */
-  width: auto; /* Default width, will be overridden by JS */
-}
-
-.totales-table td:first-child {
-  text-align: center;
-  padding-left: 15px;
-  font-weight: 600;
-}
-
-.totales-table tr {
-  transition: background-color 0.3s ease;
-  display: flex; /* Make tr behave as flex container for column layout */
-}
-
-.totales-table tr:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.totales-table th,
-.totales-table td {
-  flex: 1; /* Distribute space equally among columns */
-  box-sizing: border-box; /* Include padding and border in element's total width and height */
-}
-
-.figaro-subpanel h4 {
-  color: white;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 1em; /* Reduced font size from 1.1em to 1em */
-  font-weight: 600;
-}
-
-.figaro-subpanel {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  padding: 15px;
-  min-height: 300px; /* Increased height */
-}
-
-.figaro-subpanel {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  padding: 15px;
-  min-height: 300px; /* Increased height */
-  display: flex; /* Enable flexbox for subpanel content */
-  flex-direction: column; /* Stack header and content vertically */
-}
-
-.figaro-subpanel h4 {
-  color: white;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 1em; /* Reduced font size from 1.1em to 1em */
-  font-weight: 600;
-  flex-shrink: 0; /* Prevent header from shrinking */
-}
-
-.figaro-subpanel-content {
-  height: calc(100% - 45px);
-  overflow-y: auto;
-  flex-grow: 1; /* Allow content to take available space */
-  display: flex; /* Enable flexbox for table layout */
-  flex-direction: column; /* Stack table header and body vertically */
-}
-
-/* Style for TF Porc row */
-.totales-table tbody tr:nth-child(3) {
-  background-color: rgba(39, 174, 96, 0.8); /* Green background */
-  color: white; /* Ensure text is readable on green background */
-  font-weight: bold; /* Bold text */
-}
-
-.totales-table tbody tr:nth-child(3) td {
-  color: white; /* Ensure text in cells is white */
-  font-weight: bold; /* Bold text in cells */
-}
-
-/* Styles for Resumen Mensual Panel */
-.resumen-mensual-content {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.resumen-mensual-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
-}
-
-.resumen-mensual-label {
-  color: white;
-  font-weight: 700;
-  font-size: 1.2em;
-}
-
-.resumen-mensual-value {
-  color: white;
-  font-weight: 600;
-  font-size: 1.3em;
-  font-family: sans;
-}
-
-.indicator-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 15px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 6px;
-  margin-bottom: 10px;
-}
-
-.indicator-label {
-  color: white;
-  font-weight: 600;
-  font-size: 0.95em;
-}
-
-.indicator-value {
-  color: white;
-  font-size: 1.2em;
-  font-weight: 700;
-  padding: 4px 8px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  min-width: 100px;
-  text-align: center;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.indicator-value:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.edit-indicator-value {
-  color: white;
-  font-size: 1.2em;
-  font-weight: 700;
-  padding: 4px 8px;
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-.edit-indicator-value:focus {
-  outline: none;
-  border-color: rgba(255, 255, 255, 0.5);
-  background: rgba(255, 255, 255, 0.25);
-}
-
-.indicator-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 10px; 
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px; 
-  margin-bottom: 8px; 
-}
-
-.indicator-label {
-  color: white;
-  font-weight: 600;
-  font-size: 0.9em; 
-}
-
-.indicator-value {
-  color: white;
-  font-size: 1.1em; 
-  font-weight: 700;
-  padding: 2px 6px; 
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px; 
-  min-width: 80px; 
-  text-align: center;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.indicator-value:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.edit-indicator-value {
-  color: white;
-  font-size: 1.1em; 
-  font-weight: 700;
-  padding: 2px 6px; 
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-.indicator-value select {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: white;
-  font-size: 1.1em;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 3px;
-  min-width: 80px;
-  cursor: pointer;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  text-align: center;
-}
-
-.indicator-value select:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.indicator-value select option {
-  background: #2c3e50;
-  color: white;
-}
-
-.indicator-value select:focus {
-  outline: none;
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-.indicator-value.has-select {
-  position: relative;
-}
-
-.indicator-value.has-select::after {
-  content: "▼";
-  font-size: 0.8em;
-  color: white;
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.indicator-value select {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: white;
-  font-size: 1.1em;
-  font-weight: 700;
-  padding: 2px 24px 2px 6px; 
-  border-radius: 4px;
-  min-width: 100px; 
-  cursor: pointer;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  text-align: center;
-  position: relative;
-}
-
-.indicator-value.has-select {
-  position: relative;
-}
-
-.indicator-value.has-select::after {
-  content: "▼";
-  font-size: 0.7em; 
-  color: rgba(255, 255, 255, 0.8);
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
-  padding-left: 4px; 
-  border-left: 1px solid rgba(255, 255, 255, 0.2); 
-}
-
-.indicator-value select:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.indicator-value select option {
-  background: #2c3e50;
-  color: white;
-  padding: 4px;
-}
-
-.indicator-value select:focus {
-  outline: none;
-  border-color: rgba(255, 255, 255, 0.5);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
-}
-
-.indicator-value select {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: white;
-  font-size: 1.1em;
-  font-weight: 700;
-  padding: 2px 24px 2px 6px; 
-  border-radius: 4px;
-  min-width: 100px; 
-  cursor: pointer;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  text-align: center;
-  position: relative;
-}
-
-.marcos-panel.boletas-marcos {
-  height: 510px;
-  overflow-y: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.marcos-panel.boletas-marcos h3 {
-  flex-shrink: 0;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #eee;
-}
-
-.marcos-panel.boletas-marcos .marcos-content {
-  flex: 1;
-  overflow-y: auto;
-  padding-right: 10px; /* Add padding for scrollbar */
-  margin-right: -10px; /* Offset padding to maintain alignment */
-}
-
-.marcos-panel.boletas-marcos .marcos-content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.marcos-panel.boletas-marcos .marcos-content::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-.marcos-panel.boletas-marcos .marcos-content::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
-}
-
-.marcos-panel.boletas-marcos .marcos-content::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
-
-.otro-panel.boletas-otro {
-  height: 510px;
-  overflow-y: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.otro-panel.boletas-otro h3 {
-  flex-shrink: 0;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #eee;
-}
-
-.otro-panel.boletas-otro .otro-content {
-  flex: 1;
-  overflow-y: auto;
-  padding-right: 10px; /* Add padding for scrollbar */
-  margin-right: -10px; /* Offset padding to maintain alignment */
-}
-
-.otro-panel.boletas-otro .otro-content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.otro-panel.boletas-otro .otro-content::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-.otro-panel.boletas-otro .otro-content::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
-}
-
-.otro-panel.boletas-otro .otro-content::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
-
-.proy-tcr-btn {
-  margin-top: 8px;
-  background-color: #f1c40f; /* Yellow color */
-  color: #000; /* Black text */
-  font-weight: bold;
-  padding: 8px;
-  width: 100%;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-}
-
-.proy-tcr-btn:hover {
-  background-color: #f39c12; /* Slightly darker yellow on hover */
-}
-
-/* New Totales TCR red button */
-.totales-tcr-btn {
-  margin-top: 8px;
-  background-color: #e74c3c; /* Red color */
-  color: #fff; /* White text */
-  font-weight: bold;
-  padding: 8px;
-  width: 100%;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.2s ease, transform 0.08s ease;
-}
-
-.totales-tcr-btn:hover {
-  background-color: #c0392b;
-}
-
-.totales-tcr-btn:active {
-  transform: translateY(1px);
-}
-
-/* Add new styles for TCR Projection Modal */
-.tcr-modal {
-  display: none;
-  position: fixed;
-  z-index: 1001;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0,0,0,0.7);
-}
-
-.tcr-modal-content {
-  background-color: #2c3e50;
-  margin: 2% auto;
-  padding: 20px;
-  width: 95%;
-  height: 90%;
-  border-radius: 8px;
-  position: relative;
-  color: white;
-}
-
-/* Totales TCR modal (medium centered box) */
-.totales-tcr-modal-content {
-  background-color: #2c3e50;
-  margin: 4% auto;
-  padding: 20px;
-  width: 720px;
-  max-width: calc(100% - 40px);
-  max-height: 80%;
+/* Floating filter panel under header filter buttons */
+.filter-panel{
+  background: #fff;
+  border: 1px solid var(--subtle);
   border-radius: 10px;
-  position: relative;
-  color: white;
-  overflow: auto;
-  box-shadow: 0 12px 30px rgba(0,0,0,0.6);
-  border: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 0 12px 30px rgba(16,24,40,0.08);
+  padding:12px;
+  font-size:13px;
+  color:var(--text);
+}
+.filter-panel-title{
+  font-weight:700;
+  margin-bottom:8px;
+  color:var(--text);
+}
+.filter-panel-inputwrap{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  margin-bottom:8px;
+}
+.filter-panel-input{
+  flex:1;
+  padding:10px 12px;
+  border-radius:8px;
+  border:1px solid var(--subtle);
+  font-size:13px;
+  background:#fff;
+  color:var(--text);
+}
+.filter-panel-clear{
+  background:transparent;
+  border:0;
+  color:var(--muted);
+  padding:6px 8px;
+  border-radius:8px;
+  cursor:pointer;
+}
+.filter-panel-list{
+  max-height:220px;
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin-bottom:8px;
+}
+.filter-panel-item{
+  text-align:left;
+  padding:8px;
+  border-radius:8px;
+  border:1px solid transparent;
+  background:transparent;
+  cursor:pointer;
+  font-size:13px;
+  color:var(--text);
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.filter-panel-item:hover{
+  background: rgba(11,102,255,0.04);
+  border-color: rgba(11,102,255,0.06);
 }
 
-.totales-tcr-close {
-  position: absolute;
-  right: 14px;
-  top: 10px;
-  color: white;
-  font-size: 26px;
-  font-weight: bold;
-  cursor: pointer;
+/* Visual style for active (selected) filter options.
+   Shows a warm accent background with contrasting text and subtle border. */
+.filter-panel-item.selected{
+  background: linear-gradient(180deg, rgba(255,122,26,0.18), rgba(255,122,26,0.12));
+  color: #6a2b00; /* darker warm text to remain legible */
+  border-color: rgba(255,122,26,0.28);
+  box-shadow: inset 0 -2px 0 rgba(255,255,255,0.06);
+}
+.filter-panel-empty{
+  color:var(--muted);
+  padding:6px;
+}
+.filter-panel-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
 }
 
-.totales-tcr-list {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* table cells */
+.grid td{
+  padding:12px 14px;
+  border-bottom:1px solid rgba(15,23,42,0.04);
+  vertical-align:middle;
+  font-size:14px;
+  white-space:normal;
+  overflow-wrap:break-word;
+  word-break:break-word;
+  hyphens:auto;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  text-align:center;
 }
 
-.totales-tcr-items {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.totales-tcr-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 12px;
-  background: rgba(255,255,255,0.04);
-  border-radius: 6px;
-  font-weight: 600;
-  color: #fff;
-}
-
-.totales-tcr-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 60%;
-}
-
-.totales-tcr-balance {
-  color: #f1c40f;
-  font-weight: 800;
-  min-width: 110px;
-  text-align: right;
-}
-
-/* New styling for Cupo Utilizado (red) */
-.tcr-utilizado {
-  color: #e74c3c;
-  font-weight: 800;
-  min-width: 110px;
-  text-align: right;
-}
-
-/* Cupo Disponible styling: green when non-negative, red when negative */
-.tcr-disponible {
-  font-weight: 800;
-  min-width: 110px;
-  text-align: right;
-  color: #2ecc71; /* default positive color */
-}
-
-.tcr-disponible.negative {
-  color: #e74c3c; /* red for negative available cupo */
-}
-
-.tcr-disponible.positive {
-  color: #2ecc71; /* explicit positive class (green) */
-}
-
-.totales-empty {
-  color: #ccc;
-  padding: 10px;
-  text-align: center;
-}
-
-.tcr-close {
-  position: absolute;
-  right: 15px;
-  top: 10px;
-  color: white;
-  font-size: 28px;
-  font-weight: bold;
-  cursor: pointer;
-}
-
-.tcr-close:hover {
-  color: #bbb;
-}
-
-.tcr-grid-container {
-  margin-top: 15px;
-  overflow: auto;
-  max-height: calc(100% - 50px);
-}
-
-.tcr-header-row {
-  display: grid;
-  grid-template-columns: 200px repeat(12, minmax(80px, 1fr));
-  gap: 1px;
-  background-color: #34495e;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-
-.tcr-description-header {
-  padding: 8px;
-  font-weight: bold;
-  font-size: 0.9em;
-  background-color: #34495e;
-}
-
-.tcr-months-header {
-  display: contents;
-}
-
-.tcr-month-cell {
-  padding: 8px;
-  text-align: center;
-  font-weight: bold;
-  font-size: 0.9em;
-  background-color: #34495e;
-}
-
-.tcr-month-total {
-  color: #e74c3c; /* Red color from the app's color scheme */
-  font-size: 1.2em; /* Increased from 0.85em */
-  display: block;
-  margin-top: 4px;
-  font-weight: 700; /* Make it bold */
-}
-
-.tcr-account-group {
-  margin: 1px 0;
-  background-color: #2c3e50;
-}
-
-.tcr-account-header {
-  padding: 8px;
-  font-weight: bold;
-  font-size: 0.85em;
-  background-color: #2980b9;
-}
-
-.tcr-transaction-row {
-  display: grid;
-  grid-template-columns: 200px repeat(12, minmax(80px, 1fr));
-  gap: 1px;
-  font-size: 0.8em;
-}
-
-.tcr-transaction-cell {
-  padding: 6px;
-  background-color: #34495e;
-}
-
-.tcr-amount-cell {
-  text-align: center;
-  font-family: monospace;
-  background-color: #34495e;
-  padding: 6px;
-  font-size: 1.2em;
+/* "Nombre (Cong.)" cell is always bold and highlights on hover */
+.grid td.cong-cell{
+  transition: color .12s ease, font-weight .12s ease;
   font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.tcr-empty-cell {
-  background-color: #2c3e50;
+/* Recent baptism age indicator (red until 1 year 6 months) */
+.age-recent{
+  color: var(--danger);
+  font-weight: 700;
+}
+.grid td.cong-cell:hover{
+  color: var(--accent-strong);
+  cursor: pointer;
 }
 
-.tcr-modal-content h2 {
-  color: white;
+/* Selected row styling: subtle light highlight */
+.grid tr.selected td{
+  background: rgba(11,102,255,0.06);
+  transition: background-color .12s ease;
+  color:var(--text);
 }
+
+
+
+/* Resizer handle */
+.th-resizer{
+  position:absolute;
+  top:6px;
+  right:0;
+  width:10px;
+  height:calc(100% - 12px);
+  cursor:col-resize;
+  z-index:5;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.th-resizer::after{
+  content:'';
+  width:2px;
+  height:60%;
+  background:rgba(15,23,42,0.06);
+  border-radius:2px;
+}
+
+/* Modal */
+.modal{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(15,23,42,0.06);
+  padding:20px;
+  z-index:40;
+}
+
+/* Numeric inputs used in activity table (compact, with spinner) */
+.num-input{
+  -moz-appearance: textfield;
+}
+.num-input::-webkit-outer-spin-button,
+.num-input::-webkit-inner-spin-button {
+  -webkit-appearance: auto;
+  margin: 0;
+}
+.num-input{ font-size:13px; padding:8px 10px; color:var(--text); background:#fff; border:1px solid var(--subtle); }
+
+/* Activity comments wrapper and inner editable box styled like the numeric inputs */
+.act-comments{
+  position:relative;               /* allow absolutely positioned info icon inside */
+  border-radius:8px;
+  padding:0;                        /* inner editable handles padding */
+  min-height:40px;
+  max-height:140px;
+  background: transparent;
+  box-sizing:border-box;
+}
+
+/* actual contenteditable area inside the wrapper */
+.act-comments-input{
+  border:1px solid var(--subtle);
+  border-radius:8px;
+  padding:8px 10px;
+  padding-right:36px;              /* room for the info icon which sits in the wrapper */
+  min-height:40px;
+  max-height:140px;
+  overflow:auto;
+  background: #fff;
+  box-sizing:border-box;
+  font-size:13px;
+  text-align:left;
+  white-space:pre-wrap;
+  word-break:break-word;
+  line-height:1.25;
+  color: var(--text);
+}
+
+/* circular info icon placed at the end (inside wrapper) of the comment box */
+.comment-info{
+  position:absolute;
+  right:8px;
+  bottom:8px;
+  width:24px;
+  height:24px;
+  border-radius:50%;
+  border:0;
+  background: rgba(11,102,255,0.08);
+  color: var(--accent-strong);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+  font-size:12px;
+  cursor:default;
+  box-shadow: 0 2px 6px rgba(11,102,255,0.06);
+}
+.comment-info:focus{
+  outline: none;
+  box-shadow: 0 2px 10px rgba(11,102,255,0.14);
+}
+
+/* Small "tab" panel displayed when selecting a month under the "Seleccionar mes" button */
+.month-tab{
+  background: #fff;
+  border: 1px solid var(--subtle);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(16,24,40,0.08);
+  padding:12px;
+  display:flex;
+  gap:8px;
+  align-items:center;
+  min-width:220px;
+  z-index:9999;
+}
+.month-tab-input{
+  padding:8px;
+  border-radius:8px;
+  border:1px solid var(--subtle);
+  background: #fff;
+  color: var(--text);
+}
+
+/* placeholder behavior for inner contenteditable */
+.act-comments-input:empty:before{
+  content: attr(data-placeholder);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* keep the hidden helper */
+.hidden{display:none}
+.modal-content{
+  width:100%;
+  max-width:640px;
+  background:var(--card);
+  border-radius:14px;
+  box-shadow:0 18px 50px rgba(16,24,40,0.08);
+  overflow:hidden;
+  border:1px solid var(--subtle);
+}
+.modal-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:16px 20px;
+  border-bottom:1px solid var(--subtle);
+  position:relative;
+}
+
+/* container for header actions so we can position load button near top-right */
+.modal-header-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+/* "Cargar" button styling (appears to the left of the close icon in the header) */
+.modal-header .load-btn{
+  padding:8px 12px;
+  border-radius:8px;
+  font-weight:600;
+  cursor:pointer;
+  border:1px solid var(--subtle);
+  background:transparent;
+  color:var(--text);
+}
+
+/* ensure the close icon remains visually primary but not too large */
+.modal-header .icon-btn{
+  font-size:20px;
+  line-height:1;
+  color:var(--muted);
+}
+
+/* Responsive tweak: keep header actions compact on small screens */
+@media (max-width:700px){
+  .modal-header .load-btn{
+    padding:6px 10px;
+    font-size:13px;
+  }
+}
+.icon-btn{
+  border:0;
+  background:transparent;
+  font-size:20px;
+  line-height:1;
+  cursor:pointer;
+  color:var(--muted);
+}
+form{padding:16px 20px 22px}
+.form-row{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  margin-bottom:12px;
+  width:100%;
+}
+
+/* label + control horizontally aligned, control fills remaining width */
+label{
+  display:flex;
+  flex-direction:row;
+  align-items:center;
+  gap:10px;
+  font-size:13px;
+  color:var(--muted);
+  width:100%;
+}
+
+/* ensure any optional label span (not currently used) doesn't force a large fixed column */
+label > span{
+  flex:0 0 120px;
+  font-weight:600;
+  color:var(--muted);
+  white-space:nowrap;
+  text-align:left;
+}
+
+/* controls fill available space and wrap nicely on small widths */
+label input,
+label textarea,
+label select{
+  margin-top:0;
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid var(--subtle);
+  font-size:14px;
+  flex:1 1 0;
+  min-width:0;
+  background:#fff;
+  color:var(--text);
+}
+label textarea{padding:10px}
+label.full{width:100%}
+.form-row > label{width:100%}
+
+/* Actions */
+.modal-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  margin-top:8px;
+}
+
+/* Responsive */
+@media (max-width:1000px){
+  body{padding:14px}
+  .modal-content{max-width:92vw}
+}
+@media (max-width:700px){
+  .grid{min-width:0}
+  .form-row{flex-direction:column}
+  #search{display:none}
+}
+
+/* Profile popup styles */
+.profile-popup{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(15,23,42,0.3);
+  padding:18px;
+  z-index:60;
+}
+.profile-popup-content{
+  width:100%;
+  max-width:920px;
+  background:var(--card);
+  border-radius:10px;
+  box-shadow:0 18px 48px rgba(16,24,40,0.18);
+  border:1px solid var(--subtle);
+  /* tightly constrain popup so it fits within the viewport without triggering vertical scrollbar */
+  max-height: calc(100vh - 40px);
+  display:flex;
+  flex-direction:column;
+  overflow:visible;
+  padding:6px 0;
+}
+.profile-popup-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 12px;
+  border-bottom:1px solid var(--subtle);
+}
+.profile-popup-body{
+  padding:8px 10px 10px;
+  /* make the body flexible so content adapts and avoids creating a vertical scrollbar */
+  flex:1 1 auto;
+  max-height: none;
+  overflow: visible;
+}
+.profile-popup .pp-row{
+  display:flex;
+  gap:8px;
+  margin-bottom:8px;
+  flex-wrap:wrap;
+}
+.profile-popup label{
+  display:flex;
+  flex-direction:column;
+  font-size:12px;
+  color:var(--muted);
+  flex:1 1 180px;
+}
+.profile-popup input[readonly], .profile-popup textarea[readonly]{
+  padding:6px 8px;
+  border-radius:6px;
+  border:1px solid var(--subtle);
+  background:#fbfbfd;
+  color:var(--text);
+  font-size:13px;
+}
+.pp-activity-table{
+  margin-top:6px;
+  border:1px solid var(--subtle);
+  border-radius:8px;
+  /* keep activity table compact and let grid items wrap to avoid overflow */
+  overflow: visible;
+  max-height: none;
+  width:100%;
+  box-sizing:border-box;
+  font-size:12px;
+  padding:6px;
+}
+
+/* make activity table compact so all months fit vertically */
+.pp-activity-table .pp-head, .pp-activity-table .pp-row-act{
+  display:grid;
+  /* make the first column (Año / Mes) a bit wider so month label fits on one line,
+     keep the next four columns uniform and the final "Notas" column slightly larger */
+  grid-template-columns: 1.4fr repeat(4, 1fr) 1.6fr;
+  gap:6px;
+  align-items:center;
+  padding:6px 8px;
+  border-bottom:1px solid rgba(15,23,42,0.03);
+  background: linear-gradient(180deg, rgba(250,250,251,0.98), rgba(255,255,255,0.98));
+  font-weight:700;
+  font-size:12px;
+  line-height:1.1;
+}
+
+/* center header cells so each activity column title is visually centered */
+.pp-activity-table .pp-head div{
+  padding:4px 6px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
+.pp-activity-table .pp-row-act{
+  font-weight:400;
+  background:transparent;
+}
+/* Center contents of each activity cell both horizontally and vertically
+   so month data, participation, counts and notes display uniformly centered. */
+.pp-activity-table .pp-row-act div{
+  padding:4px 6px;
+  min-height:20px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  gap:6px;
+  overflow-wrap:break-word;
+  word-break:break-word;
+}
+.pp-activity-table .pp-total{
+  display:flex;
+  justify-content:flex-end;
+  padding:6px 8px;
+  font-weight:700;
+  gap:12px;
+  font-size:13px;
+}
+/* ensure popup's action row stays visible and compact */
+.profile-popup .modal-actions{
+  padding:8px 12px;
+  display:flex;
+  justify-content:flex-start;
+  gap:8px;
+  border-top:1px solid var(--subtle);
+  /* keep actions visible by sticking them to the bottom of the popup body */
+  position:sticky;
+  bottom:0;
+  background: var(--card);
+  z-index:10;
+  /* subtle separation and slight elevation so it doesn't visually merge with scrolling content */
+  box-shadow: 0 -6px 18px rgba(16,24,40,0.04);
+}
+.hidden{display:none}

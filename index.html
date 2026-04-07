@@ -1,1292 +1,259 @@
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>App de Finanzas</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="styles.css">
-  <style>
-    /* Ensure the Porcentajes Diarios panel is slightly shorter and supports horizontal scrolling of cards */
-    .porcentajes-diarios .black-panel{
-      min-height: 160px; /* reduced height to leave more space below */
-      padding: 12px;
-      box-sizing: border-box;
-      overflow: hidden; /* hide vertical overflow */
-      width: 100%;
-      margin-top: 8px; /* ensure panel sits below the title */
-    }
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Registro de Personas</title>
 
-    /* Align the panel title to the top-left like other panels */
-    .porcentajes-diarios > h2 {
-      text-align: left;
-      margin: 0;
-      padding: 0;
-      align-self: flex-start;
-      font-weight: 600;
-    }
+  <link rel="stylesheet" href="styles.css" />
 
-    /* Ensure section stacks title above panel (defensive in case parent uses flex) */
-    .porcentajes-diarios {
-      display: block;
+  <!-- Import map (ready if later you add ESM libs) -->
+  <script type="importmap">
+  {
+    "imports": {
     }
-
-    /* Arrange day cards horizontally and allow left-right scrolling */
-    .porcentajes-daily-container{
-      display:flex;
-      flex-direction:row; /* place cards in a row */
-      flex-wrap:nowrap;
-      gap:10px;
-      align-items:flex-start;
-      padding:8px;
-      overflow-x:auto; /* enable horizontal scroll */
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: thin;
-    }
-
-    /* Ensure each card has a consistent width and is inline for horizontal flow */
-    .porc-daily-card{
-      display:inline-block;
-      min-width:180px;
-      max-width:260px;
-      box-sizing:border-box;
-      margin:0;
-      background:#111;
-      color:#fff;
-      padding:10px;
-      border-radius:8px;
-      box-shadow:0 2px 6px rgba(0,0,0,0.25);
-      flex: 0 0 auto;
-    }
-
-    /* Responsive constraint for small viewports */
-    @media (max-width:600px){
-      .porcentajes-diarios .black-panel{ min-height:140px; }
-      .porc-daily-card{ min-width:150px; max-width:220px; border-radius:6px; }
-    }
-  </style>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  }
+  </script>
 </head>
 <body>
-  <div class="container">
+  <div id="app">
+    <div class="banner" role="banner">
+      <div class="banner-title">REGISTRO DE PUBLICADORES - CONGREGACIÓN OESTE</div>
+      <div class="banner-controls" style="position:relative; display:flex; align-items:center; gap:12px;">
+      <!-- Sección de inicio de sesión con Google y botones de respaldo (moved here so it's left of Respaldo) -->
+      <div id="googleSignInSection" style="display:flex; gap:8px; align-items:center;">
+        <div id="googleSignInButton"></div>
+        <p id="googleUserInfo" style="display:none;margin:0;font-weight:600;color:var(--muted);"></p>
+        <button id="guardarRespaldoBtn" class="secondary" style="white-space:nowrap;">Guardar</button>
+        <button id="cargarRespaldoBtn" class="secondary" style="white-space:nowrap;">Cargar</button>
+        <button id="googleSignOutBtn" class="secondary" style="white-space:nowrap; display:none; margin-left:6px;">Salir</button>
+      </div>
 
-    <!-- Sección 1: Resumen -->
-    <section class="summary-section">
-      <div class="summary-header">
-        <h2>RESUMEN GENERAL</h2>
-        <div class="summary-buttons" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
-          <!-- Top row: Google Sign-In and Drive save/load buttons -->
-          <div style="display:flex;align-items:center;gap:12px;">
-            <div id="googleSignInSection" style="display:flex;flex-direction:row;align-items:center;gap:12px;">
-              <div id="googleSignInButton" style="display:inline-block;"></div>
-              <div style="display:flex;flex-direction:row;align-items:center;gap:8px;">
-                <p id="googleUserInfo" style="display:none;color:#fff;margin:0;font-size:0.9em;">Sesión iniciada...</p>
-                <button id="googleSignOutBtn" class="backup-btn google-signout" style="display:none;background:#e74c3c;">Salir</button>
-              </div>
-            </div>
+      <div style="position:relative;">
+        <button id="backupBtn" class="icon-btn" aria-haspopup="true" aria-expanded="false" title="Respaldo">Respaldo ▾</button>
 
-            <div style="display:flex;gap:8px;">
-              <!-- Google Drive manual save/load buttons -->
-              <button id="saveToDriveBtn" class="backup-btn">Guardar</button>
-              <button id="loadFromDriveBtn" class="backup-btn">Cargar</button>
-            </div>
-          </div>
-
-          <!-- Bottom row: legacy Respaldo dropdown and Ocultar button -->
-          <div style="display:flex;gap:12px;align-items:center;">
-            <div id="lastBackupContainer" style="color:#ddd;font-size:0.85em;min-width:220px;">
-              Último respaldo cargado: <span id="lastBackupName" style="font-weight:700;color:#fff;">(ninguno)</span>
-            </div>
-            <div style="flex:0 0 auto; display:flex; gap:8px; align-items:center;">
-              <div class="backup-dropdown">
-                <button id="backupButton" class="backup-btn">Respaldo</button>
-                <div id="backupDropdown" class="backup-options">
-                  <button id="backupSave" class="backup-option">Respaldar</button>
-                  <button id="backupRestore" class="backup-option">Restaurar</button>
-                </div>
-              </div>
-              <button id="hideButton" class="backup-btn">Ocultar</button>
-            </div>
-          </div>
+        <!-- simple dropdown menu for backup actions -->
+        <div id="backupMenu" class="hidden" role="menu" aria-label="Respaldo" style="position:absolute; right:0; top:calc(100% + 8px); background:#fff; border:1px solid #e6e9ee; border-radius:8px; box-shadow:0 8px 24px rgba(10,12,15,0.12); padding:8px; z-index:1000; min-width:160px;">
+          <button id="exportBtn" title="Exportar registro" class="icon-btn" style="display:block; width:100%; text-align:left; padding:8px 10px;">Exportar</button>
+          <button id="importBtn" title="Importar registro" class="icon-btn" style="display:block; width:100%; text-align:left; padding:8px 10px;">Importar</button>
         </div>
       </div>
-      <div class="summary-content">
-        <!-- Left side: Total Balance -->
-        <div class="total-balance">
-          <h3>Balance Total</h3>
-          <p id="totalAmount">$0</p>
-          <div class="balance-indicators">
-            <div class="balance-indicator">
-              <span class="label">Fecha:</span>
-              <span class="value" id="currentDate">Cargando...</span>
-            </div>
-            <div class="balance-indicator">
-              <span class="label">Hora (GMT-3):</span>
-              <span class="value" id="currentTime">Cargando...</span>
-            </div>
-            <div class="balance-indicator">
-              <span class="label">USD:</span>
-              <span class="value" id="usdValue">Cargando...</span>
-            </div>
-            <div class="balance-indicator">
-              <span class="label">INGRESO FALTANTE:</span>
-              <span class="value" id="ingresoFaltanteValueSummary">Cargando...</span>
-            </div>
-            <div class="balance-indicator">
-              <span class="label">PRONOSTICO:</span>
-              <span class="value" id="pronosticoValue">Cargando...</span>
-            </div>
-          </div>
-        </div>
-        <!-- Middle: Account Balances -->
-        <div class="accounts-summary">
-          <h3>CUENTAS</h3>
-          <div class="account-buttons">
-            <button class="add-account-btn">Añadir Cuenta</button>
-            <button class="delete-account-btn" disabled>Eliminar Cuenta</button>
-          </div>
-          <div class="accounts-by-treatment">
-            <div class="treatment-section activos-section">
-              <h4>Activos</h4>
-              <p class="treatment-total" id="activosTotal">$0</p>
-              <div class="accounts-list" id="activosList">
-                <!-- Activos accounts loaded dynamically -->
-              </div>
-            </div>
-            <div class="treatment-section pasivos-section">
-              <h4>Pasivos</h4>
-              <p class="treatment-total" id="pasivosTotal">$0</p>
-              <div class="accounts-list" id="pasivosList">
-                <!-- Pasivos accounts loaded dynamically -->
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- Right side: External Data -->
-        <div class="external-data">
-          <h3>DATOS EXTERNOS</h3>
-          <div class="external-data-boxes">
-            <div class="data-box">
-              <h4>P.O.S.</h4>
-              <div class="data-content">
-                <p>Sin datos</p>
-              </div>
-            </div>
-            <div class="data-box">
-              <h4 class="">DIF. SEMANAL FIGARO</h4>
-              <div class="data-content">
-                <p>Sin datos</p>
-              </div>
-            </div>
-            <div class="data-box">
-              <h4>RETENCION ALDO</h4>
-              <div class="data-content">
-                <p id="aldoRetentionValue">$0</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+      <input id="importFile" type="file" accept=".json" class="hidden" />
+      <input id="csvFile" type="file" accept=".csv,text/csv" class="hidden" />
+    </div>
+    </div>
+    <div class="toolbar">
+      <button id="addPersonBtn" class="primary">Agregar Persona</button>
+      <button id="registroBtn" class="secondary">Registro</button>
+      <button id="actividadBtn" class="secondary">Actividad</button>
+      <div class="spacer"></div>
 
-    <!-- Modal para añadir/editar cuenta -->
-    <div id="accountModal" class="modal">
-      <div class="modal-content">
-        <span class="close">&times;</span>
-        <h2 id="modalTitle">Nueva Cuenta</h2>
-        <form id="accountForm">
-          <input type="hidden" id="isEditing" value="false">
-          <div class="form-group">
-            <label for="accountName">Nombre de Cuenta:</label>
-            <input type="text" id="accountName" required>
-          </div>
-          <div class="form-group">
-            <label for="accountType">Tipo de Cuenta:</label>
-            <select id="accountType" required>
-              <option value="corriente">Cuenta Corriente</option>
-              <option value="credito">Tarjeta de Crédito</option>
-              <option value="dolar">Cuenta Dolar</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="accountTreatment">Tratamiento:</label>
-            <select id="accountTreatment" required>
-              <option value="activos">Activos</option>
-              <option value="pasivos">Pasivos</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="initialBalance">Saldo inicial:</label>
-            <input type="number" id="initialBalance" required step="0.01">
-          </div>
-          <div class="form-group checkbox-group">
-            <label for="isSettled">
-              <input type="checkbox" id="isSettled">
-              Botón Saldado
-            </label>
-          </div>
-          <button type="submit" id="accountFormSubmit">Crear Cuenta</button>
-        </form>
+      <div class="search-wrap" style="display:flex;align-items:center;gap:8px;">
+        <div id="totalCount" class="count-badge" aria-hidden="true">0</div>
+        <input id="search" placeholder="Buscar..." aria-label="Buscar" />
+        <button id="clearSearchBtn" class="trash-btn" title="Borrar búsqueda" aria-label="Borrar búsqueda">✖</button>
       </div>
     </div>
 
-    <!-- Secciones 2 y 3: Transacciones e Historial lado a lado -->
-    <div class="transactions-container">
-      <!-- Sección 2: Registro de Transacciones -->
-      <section class="transaction-section">
-        <div id="transactionPanel">
-          <h2>Registrar Transacción</h2>
-          <form id="transactionForm">
-            <div class="form-group">
-              <label for="date">Fecha:</label>
-              <input type="date" id="date" required>
-            </div>
-            <div class="form-group">
-              <label for="account">Nombre de Cuenta:</label>
-              <select id="account" required>
-                <option value="">Seleccione una cuenta</option>
-                <!-- Las cuentas se cargarán dinámicamente -->
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Tipo:</label>
-              <input type="hidden" id="type" value="ingreso" required>
-              <div class="type-buttons">
-                <button class="type-button ingreso selected" data-type="ingreso">Ingreso</button>
-                <button class="type-button gasto" data-type="gasto">Gasto</button>
-                <button class="type-button transferencia" data-type="transferencia">Transferencia</button>
-              </div>
-            </div>
-            <div class="form-group" id="destinationAccountGroup" style="display: none;">
-              <label for="destinationAccount">Cuenta Destino:</label>
-              <select id="destinationAccount" required disabled>
-                <option value="">Seleccione cuenta destino</option>
-                <!-- Las cuentas se cargarán dinámicamente -->
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="description">Descripción:</label>
-              <input type="text" id="description" required>
-            </div>
-            <div class="form-group installment-fields" style="display: none;">
-              <div class="form-group">
-                <label for="currentInstallment">N° de cuota:</label>
-                <input type="number" id="currentInstallment" min="1" required disabled>
-              </div>
-              <div class="form-group">
-                <label for="totalInstallments">Cant. Cuotas:</label>
-                <input type="number" id="totalInstallments" min="1" required disabled>
-              </div>
-            </div>
-            <div class="form-group usd-amount-field" style="display: none;">
-              <label for="usdAmount">Monto USD:</label>
-              <input type="number" id="usdAmount" step="0.01" min="0">
-            </div>
-            <div class="form-group">
-              <label for="amount">Monto:</label>
-              <input type="number" id="amount" required step="0.01">
-            </div>
-            <button type="submit">Registrar</button>
-          </form>
-          <button id="showCalculator" class="calculator-btn">Calculadora</button>
-          <button id="proyTCR" class="proy-tcr-btn">Proyección TCR</button>
-          <button id="totalesTCR" class="totales-tcr-btn">Totales TCR</button>
-        </div>
 
-        <div id="calculatorPanel" style="display: none;">
-          <h2>Calculadora</h2>
-          <div class="calculator">
-            <div class="calculator-display">
-              <input type="text" id="calculatorInput" readonly>
-            </div>
-            <div class="calculator-keys">
-              <button type="button" class="calc-key" data-key="7">7</button>
-              <button type="button" class="calc-key" data-key="8">8</button>
-              <button type="button" class="calc-key" data-key="9">9</button>
-              <button type="button" class="calc-key operator" data-key="/">/</button>
 
-              <button type="button" class="calc-key" data-key="4">4</button>
-              <button type="button" class="calc-key" data-key="5">5</button>
-              <button type="button" class="calc-key" data-key="6">6</button>
-              <button type="button" class="calc-key operator" data-key="*">*</button>
+    <!-- Options bar: shows contextual options depending on active button (currently empty) -->
+    <div class="options-bar" role="toolbar" aria-label="Barra de opciones"></div>
 
-              <button type="button" class="calc-key" data-key="1">1</button>
-              <button type="button" class="calc-key" data-key="2">2</button>
-              <button type="button" class="calc-key" data-key="3">3</button>
-              <button type="button" class="calc-key operator" data-key="-">-</button>
-
-              <button type="button" class="calc-key" data-key="0">0</button>
-              <button type="button" class="calc-key" data-key=".">.</button>
-              <button type="button" class="calc-key equals" data-key="=">=</button>
-              <button type="button" class="calc-key operator" data-key="+">+</button>
-
-              <button type="button" class="calc-key clear" data-key="c">C</button>
-              <button type="button" class="calc-key backspace" data-key="backspace">⌫</button>
-              <button id="backToTransaction" class="calc-key return">Volver</button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Sección 3: Historial -->
-      <section class="history-section">
-        <h2>Visor de Cuentas</h2>
-        <div class="transactions-list" id="transactionsList">
-          <!-- Las transacciones se cargarán dinámicamente -->
-        </div>
-      </section>
+    <div class="table-wrapper" role="region" aria-label="Tabla de registro">
+      <table id="peopleTable" class="grid">
+        <colgroup id="cols">
+          <col style="width:160px" />
+          <col style="width:140px" />
+          <col style="width:160px" />
+          <col style="width:140px" />
+          <col style="width:100px" />
+          <col style="width:110px" />
+          <col style="width:140px" />
+          <col style="width:64px" />
+          <col style="width:64px" />
+          <col style="width:120px" />
+          <col style="width:120px" />
+          <col style="width:220px" />
+          <col style="width:120px" />
+          <col style="width:180px" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Nombre (Cong.)</th>
+            <th>Nombre</th>
+            <th>Apellido Paterno</th>
+            <th>Apellido Materno</th>
+            <th>Grupo</th>
+            <th>Privilegio</th>
+            <th>Designación</th>
+            <th>Sexo</th>
+            <th>Esp</th>
+            <th>Fecha Nacimiento</th>
+            <th>Fecha Bautismo</th>
+            <th>Dirección</th>
+            <th>Teléfono</th>
+            <th>Contacto Emergencia</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
     </div>
-
-    <!-- New FIGARO header panel -->
-    <section class="figaro-header">
-      <h2>FIGARO</h2>
-      <button class="figaro-year-btn">REPORTE</button>
-    </section>
-
-    <!-- New Figaro Summary Panels -->
-    <div class="figaro-summary-panels">
-      <div class="figaro-panel resumen-general">
-        <h3>Resumen General Figaro</h3>
-        <div class="figaro-content">
-          <div class="figaro-subpanels">
-            <div class="figaro-subpanel">
-              <h4 class="">Totales Finales</h4>
-              <div class="figaro-subpanel-content">
-                <table class="totales-table">
-                  <thead>
-                    <tr>
-                      <th>TOTALES</th>
-                      <th>ALDO</th>
-                      <th>MARCOS</th>
-                      <th>OTRO</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>TF Ventas</td>
-                      <td>$0</td>
-                      <td>$0</td>
-                      <td>$0</td>
-                    </tr>
-                    <tr>
-                      <td>TF Venta Tarjeta</td>
-                      <td>$0</td>
-                      <td>$0</td>
-                      <td>$0</td>
-                    </tr>
-                    <tr style="background-color: rgba(39, 174, 96, 0.8); color: white; font-weight: bold;">
-                      <td style="color: white; font-weight: bold;">TF Porc.</td>
-                      <td>$0</td>
-                      <td>$0</td>
-                      <td>$0</td>
-                    </tr>
-                    <tr>
-                      <td>Retención</td>
-                      <td>$0</td>
-                      <td>$0</td>
-                      <td>$0</td>
-                    </tr>
-                    <tr>
-                      <td>Líquido</td>
-                      <td>$0</td>
-                      <td>$0</td>
-                      <td>$0</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div class="figaro-subpanel">
-              <h4 class="">Resumen Mensual</h4>
-              <div class="figaro-subpanel-content" id="resumenMensualContent">
-                <!-- Content will be added dynamically -->
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="figaro-panel indicadores">
-        <h3>Indicadores Figaro</h3>
-        <div class="figaro-content">
-          <div class="indicator-item">
-            <span class="indicator-label">PROYECCION:</span>
-            <span class="indicator-value" id="proyeccionValue">$0</span>
-          </div>
-          <div class="indicator-item">
-            <span class="indicator-label">INGRESO FALTANTE:</span>
-            <span class="indicator-value" id="ingresoFaltanteValue">$0</span>
-          </div>
-          <div class="indicator-item">
-            <span class="indicator-label">SEMANAS:</span>
-            <span class="indicator-value has-select">
-              <select id="weekSelector">
-                <option value="1">Semana 1</option>
-                <option value="2">Semana 2</option>
-                <option value="3">Semana 3</option>
-                <option value="4">Semana 4</option>
-                <option value="5" selected>Semana 5</option>
-              </select>
-            </span>
-          </div>
-          <div class="indicator-item">
-            <span class="indicator-label">DIFERENCIA SEMANAL:</span>
-            <span class="indicator-value" id="diferenciaSemanalValue">$0</span>
-          </div>
-          <div class="indicator-item">
-            <span class="indicator-label">META MES:</span>
-            <span class="indicator-value editable" id="metaMesValue">
-              $2.500.000
-            </span>
-          </div>
-          <div class="indicator-item">
-            <span class="indicator-label">META DIA:</span>
-            <span class="indicator-value" id="metaDiaValue">$0</span>
-          </div>
-          <div class="indicator-item">
-            <span class="indicator-label">DIAS HABILES MES:</span>
-            <span class="indicator-value editable" id="diasHabilesMesValue">
-              24
-            </span>
-          </div>
-          <div class="indicator-item">
-            <span class="indicator-label">DIAS TRABAJADOS:</span>
-            <span class="indicator-value" id="diasTrabajadosValue">0</span>
-          </div>
-          <div class="indicator-item">
-            <span class="indicator-label">DIAS RESTANTES:</span>
-            <span class="indicator-value" id="diasRestantesValue">0</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Add new full-width panel for Semanas Figaro -->
-    <div class="figaro-semanas-panel">
-      <h3>Semanas Figaro</h3>
-      <div class="figaro-semanas-content">
-        <!-- Content will be added dynamically -->
-      </div>
-    </div>
-
-    <!-- Nuevo panel: Porcentajes Diarios (mismo aspecto que PELUQUEROS) -->
-    <section class="figaro-header porcentajes-diarios">
-      <h2>Porcentajes Diarios</h2>
-      <div class="black-panel" id="porcentajesDiariosPanel">
-        <!-- Daily percentage summary cards will be injected here -->
-        <div id="porcentajesDailyContainer" class="porcentajes-daily-container"></div>
-      </div>
-    </section>
-
-    <!-- Sección de registro de ventas y historial -->
-    <div class="salon-section">
-      <!-- Sección de registro de ventas -->
-      <section class="salon-registration">
-        <h2>Registrar Ventas</h2>
-        <form id="salonForm" class="salon-form">
-          <div class="form-group">
-            <label for="salonWeek">Semana:</label>
-            <select id="salonWeek" required>
-              <option value="1">Semana 1</option>
-              <option value="2">Semana 2</option>
-              <option value="3">Semana 3</option>
-              <option value="4">Semana 4</option>
-              <option value="5">Semana 5</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="salonDate">Fecha:</label>
-            <input type="date" id="salonDate" required>
-          </div>
-          <div class="form-group">
-            <label>Peluquero:</label>
-            <input type="hidden" id="hairdresser" value="ALDO" required>
-            <div class="hairdresser-buttons">
-              <button class="hairdresser-button selected" data-hairdresser="ALDO">ALDO</button>
-              <button class="hairdresser-button" data-hairdresser="MARCOS">MARCOS</button>
-              <button class="hairdresser-button" data-hairdresser="OTRO">OTRO</button>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Tipo de Pago:</label>
-            <input type="hidden" id="paymentType" value="efectivo">
-            <div class="payment-buttons">
-              <button class="payment-button selected" data-type="efectivo">Efectivo</button>
-              <button class="payment-button" data-type="debito">Débito</button>
-              <button class="payment-button" data-type="credito">Crédito</button>
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="serviceCode">Código:</label>
-            <input type="text" id="serviceCode" required>
-          </div>
-          <div class="form-group">
-            <label for="salonAmount">Monto:</label>
-            <input type="number" id="salonAmount" required step="0.01">
-          </div>
-          <button type="submit">Registrar Venta</button>
-        </form>
-      </section>
-
-      <!-- Sección de historial de ventas -->
-      <section class="salon-history">
-        <h2>Historial de Ventas</h2>
-        <div class="salon-filter-buttons">
-          <button id="deleteAllSales" class="delete-all-btn">Borrar todo</button>
-          <button id="cardFilter" class="filter-btn">Filtro Tarjeta</button>
-          <div class="date-filter-container">
-            <input type="date" id="dateFilterInput" class="date-filter-input">
-          </div>
-        </div>
-        <div class="totals-panel">
-          <!-- Panel de totales vacío -->
-        </div>
-        <div class="salon-sales">
-          <div class="sales-header">
-            <span>Sem</span>
-            <span>Fecha</span>
-            <span>Peluquero</span>
-            <span>Código</span>
-            <span>Monto</span>
-            <span>Tipo Pago</span>
-            <span>Comisión</span>
-            <span>+ IVA</span>
-            <span>Neto</span>
-            <span>Fecha Abono</span>
-            <span>Pagado</span>
-            <span>-</span>
-          </div>
-          <div id="salonSalesList">
-            <!-- Las ventas se cargarán dinámicamente -->
-          </div>
-        </div>
-      </section>
-      <section class="total-abonos-panel">
-        <h2>Total Abonos</h2>
-      </section>
-    </div>
-    <section class="figaro-header">
-      <h2>PELUQUEROS</h2>
-      <div class="black-panel">
-        <button class="black-panel-button" id="aldoButton">ALDO</button>
-        <button class="black-panel-button">MARCOS</button>
-        <button class="black-panel-button">OTRO</button>
-      </div>
-    </section>
-
-    <!-- Add new section for Aldo's panels -->
-    <div class="aldo-panels">
-      <div class="aldo-panel semanas-aldo">
-        <h3>Semanas Aldo</h3>
-        <div class="aldo-content">
-          <!-- Content will be added dynamically -->
-        </div>
-      </div>
-      <div class="aldo-panel totales-aldo">
-        <div class="panel-header-container">
-          <h3>Totales Aldo</h3>
-          <div class="header-indicators">
-            <div class="header-indicator">
-              RET: <span class="commission-value" data-type="ret" data-hairdresser="aldo">14.5%</span>
-            </div>
-          </div>
-        </div>
-        <div class="aldo-content">
-          <!-- Content will be added dynamically -->
-        </div>
-      </div>
-      <div class="aldo-panel ventas-aldo">
-        <div class="panel-header-container">
-          <h3>Ventas Aldo</h3>
-          <div class="header-indicators">
-            <div class="header-indicator">
-              REC: <span class="commission-value" data-type="rec" data-hairdresser="aldo">3%</span>
-            </div>
-            <div class="header-indicator">
-              COM: <span class="commission-value" data-type="com" data-hairdresser="aldo">35%</span>
-            </div>
-          </div>
-        </div>
-        <div class="aldo-content">
-          <div class="ventas-table">
-            <div class="ventas-table-header">
-              <div class="ventas-table-cell">Semana</div>
-              <div class="ventas-table-cell">Fecha</div>
-              <div class="ventas-table-cell">Código</div>
-              <div class="ventas-table-cell">Monto</div>
-              <div class="ventas-table-cell">Tipo Pago</div>
-              <div class="ventas-table-cell">REC</div>
-              <div class="ventas-table-cell">COM</div>
-              <div class="ventas-table-cell">Porc. Aldo</div>
-            </div>
-            <!-- Content will be added dynamically -->
-          </div>
-        </div>
-      </div>
-      <div class="aldo-panel boletas-aldo">
-        <h3>Boletas Aldo</h3>
-        <div class="aldo-content">
-          <!-- Content will be added dynamically -->
-        </div>
-      </div>
-    </div>
-
-    <!-- Add new section for Marcos' panels -->
-    <div class="marcos-panels">
-      <div class="marcos-panel semanas-marcos">
-        <h3>Semanas Marcos</h3>
-        <div class="marcos-content">
-          <!-- Content will be added dynamically -->
-        </div>
-      </div>
-      <div class="marcos-panel totales-marcos">
-        <div class="panel-header-container">
-          <h3>Totales Marcos</h3>
-          <div class="header-indicators">
-            <div class="header-indicator">
-              RET: <span class="commission-value" data-type="ret" data-hairdresser="marcos">14.5%</span>
-            </div>
-          </div>
-        </div>
-        <div class="marcos-content">
-          <!-- Content will be added dynamically -->
-        </div>
-      </div>
-      <div class="marcos-panel ventas-marcos">
-        <div class="panel-header-container">
-          <h3>Ventas Marcos</h3>
-          <div class="header-indicators">
-            <div class="header-indicator">
-              REC: <span class="commission-value" data-type="rec" data-hairdresser="marcos">3%</span>
-            </div>
-            <div class="header-indicator">
-              COM: <span class="commission-value" data-type="com" data-hairdresser="marcos">35%</span>
-            </div>
-          </div>
-        </div>
-        <div class="marcos-content">
-          <div class="ventas-table">
-            <div class="ventas-table-header">
-              <div class="ventas-table-cell">Semana</div>
-              <div class="ventas-table-cell">Fecha</div>
-              <div class="ventas-table-cell">Código</div>
-              <div class="ventas-table-cell">Monto</div>
-              <div class="ventas-table-cell">Tipo Pago</div>
-              <div class="ventas-table-cell">REC</div>
-              <div class="ventas-table-cell">COM</div>
-              <div class="ventas-table-cell">Porc. Marcos</div>
-            </div>
-            <!-- Content will be added dynamically -->
-          </div>
-        </div>
-      </div>
-      <div class="marcos-panel boletas-marcos">
-        <h3>Boletas Marcos</h3>
-        <div class="marcos-content">
-          <!-- Content will be added dynamically -->
-        </div>
-      </div>
-    </div>
-
-    <!-- Add new section for Otro's panels -->
-    <div class="otro-panels">
-      <div class="otro-panel semanas-otro">
-        <h3>Semanas Otro</h3>
-        <div class="otro-content">
-          <!-- Content will be added dynamically -->
-        </div>
-      </div>
-      <div class="otro-panel totales-otro">
-        <div class="panel-header-container">
-          <h3>Totales Otro</h3>
-          <div class="header-indicators">
-            <div class="header-indicator">
-              RET: <span class="commission-value" data-type="ret" data-hairdresser="otro">14.5%</span>
-            </div>
-          </div>
-        </div>
-        <div class="otro-content">
-          <!-- Content will be added dynamically -->
-        </div>
-      </div>
-      <div class="otro-panel ventas-otro">
-        <div class="panel-header-container">
-          <h3>Ventas Otro</h3>
-          <div class="header-indicators">
-            <div class="header-indicator">
-              REC: <span class="commission-value" data-type="rec" data-hairdresser="otro">3%</span>
-            </div>
-            <div class="header-indicator">
-              COM: <span class="commission-value" data-type="com" data-hairdresser="otro">35%</span>
-            </div>
-          </div>
-        </div>
-        <div class="otro-content">
-          <div class="ventas-table">
-            <div class="ventas-table-header">
-              <div class="ventas-table-cell">Semana</div>
-              <div class="ventas-table-cell">Fecha</div>
-              <div class="ventas-table-cell">Código</div>
-              <div class="ventas-table-cell">Monto</div>
-              <div class="ventas-table-cell">Tipo Pago</div>
-              <div class="ventas-table-cell">REC</div>
-              <div class="ventas-table-cell">COM</div>
-              <div class="ventas-table-cell">Porc. Otro</div>
-            </div>
-            <!-- Content will be added dynamically -->
-          </div>
-        </div>
-      </div>
-      <div class="otro-panel boletas-otro">
-        <h3>Boletas Otro</h3>
-        <div class="otro-content">
-          <!-- Content will be added dynamically -->
-        </div>
-      </div>
-    </div>
-
-    <!-- Add new TCR Projection Modal -->
-    <div id="tcrProjectionModal" class="tcr-modal">
-      <div class="tcr-modal-content">
-        <span class="tcr-close">&times;</span>
-        <h2>Proyección TCR - 12 Meses</h2>
-        <div class="tcr-grid-container">
-          <div class="tcr-header-row">
-            <div class="tcr-description-header">Descripción</div>
-            <div class="tcr-months-header">
-              <!-- Month headers will be added dynamically -->
-            </div>
-          </div>
-          <div class="tcr-content">
-            <!-- TCR projections will be added dynamically -->
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div id="totalesTCRModal" class="tcr-modal" aria-hidden="true">
-      <div class="totales-tcr-modal-content">
-        <span class="totales-tcr-close">&times;</span>
-        <h2>Totales TCR</h2>
-        <div id="totalesTCRList" class="totales-tcr-list">
-          <!-- Lista de cuentas TCR se inyectará aquí -->
-        </div>
-      </div>
-    </div>
-
-    <script src="app.js"></script>
-  <script>
-    // Replace label "Deuda Transbank:" -> "Pendiente P.O.S.:" in the loaded DOM and keep it from reverting later
-    document.addEventListener('DOMContentLoaded', () => {
-      // Helper to replace occurrences inside text nodes of a root subtree
-      const replaceTextNodes = (root = document) => {
-        root.querySelectorAll('*').forEach(el => {
-          el.childNodes.forEach(node => {
-            if (node.nodeType === Node.TEXT_NODE && node.nodeValue && node.nodeValue.includes('Deuda Transbank:')) {
-              node.nodeValue = node.nodeValue.replace(/Deuda Transbank:/g, 'Pendiente P.O.S.:');
-            }
-          });
-        });
-      };
-
-      // Initial replacement on load
-      replaceTextNodes();
-
-      // Observe future changes to keep the label replaced if any script/button updates text
-      try {
-        const observer = new MutationObserver(mutations => {
-          for (const m of mutations) {
-            if (m.type === 'characterData' && m.target && m.target.nodeValue && m.target.nodeValue.includes('Deuda Transbank:')) {
-              m.target.nodeValue = m.target.nodeValue.replace(/Deuda Transbank:/g, 'Pendiente P.O.S.:');
-            }
-            if (m.type === 'childList' && m.addedNodes && m.addedNodes.length) {
-              m.addedNodes.forEach(node => {
-                if (node.nodeType === Node.TEXT_NODE) {
-                  if (node.nodeValue && node.nodeValue.includes('Deuda Transbank:')) {
-                    node.nodeValue = node.nodeValue.replace(/Deuda Transbank:/g, 'Pendiente P.O.S.:');
-                  }
-                } else if (node.nodeType === Node.ELEMENT_NODE) {
-                  replaceTextNodes(node);
-                }
-              });
-            }
-          }
-        });
-
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-        });
-      } catch (obsErr) {
-        console.error('MutationObserver error:', obsErr);
-      }
-
-      // Persist salon "Semana" selection: save on change and restore on load
-      try {
-        const salonWeekSelect = document.getElementById('salonWeek');
-        if (salonWeekSelect) {
-          // Restore saved value if exists
-          const savedWeek = localStorage.getItem('salonWeekLast');
-          if (savedWeek) {
-            // Only set if option exists to avoid invalid values
-            const opt = Array.from(salonWeekSelect.options).find(o => o.value === savedWeek);
-            if (opt) salonWeekSelect.value = savedWeek;
-          }
-
-          // Save whenever the user changes the selection
-          salonWeekSelect.addEventListener('change', () => {
-            localStorage.setItem('salonWeekLast', salonWeekSelect.value);
-          });
-
-          // Also save on form submit as a safeguard
-          const salonForm = document.getElementById('salonForm');
-          if (salonForm) {
-            salonForm.addEventListener('submit', () => {
-              localStorage.setItem('salonWeekLast', salonWeekSelect.value);
-            });
-          }
-        }
-      } catch (e) {
-        // Fail silently if anything goes wrong
-        console.error('Error restoring/saving salonWeek:', e);
-      }
-
-      // Ensure the "Descripción" field receives focus initially and after a transaction is registered
-      try {
-        const descriptionInput = document.getElementById('description');
-        const transactionForm = document.getElementById('transactionForm');
-
-        // Helper to focus and place cursor at end
-        const focusDescription = () => {
-          if (!descriptionInput) return;
-          descriptionInput.focus();
-          // place cursor at end for text inputs
-          const len = descriptionInput.value.length;
-          if (typeof descriptionInput.setSelectionRange === 'function') {
-            descriptionInput.setSelectionRange(len, len);
-          }
-        };
-
-        // Focus on load so cursor starts in "Descripción"
-        focusDescription();
-
-        // After the transaction form is submitted, return focus to description and clear it
-        if (transactionForm) {
-          transactionForm.addEventListener('submit', (e) => {
-            // Let existing submit handlers run; schedule focus after form processing
-            setTimeout(() => {
-              if (descriptionInput) {
-                // Clear description so new entry starts fresh (keeps cursor in the right place)
-                descriptionInput.value = '';
-                focusDescription();
-              }
-            }, 0);
-          });
-
-          // Also if user opens the calculator or navigates within the form, ensure focus returns to description
-          // When type buttons or account selects change, keep UX consistent by focusing description
-          const typeButtons = document.querySelectorAll('.type-button');
-          typeButtons.forEach(btn => btn.addEventListener('click', () => setTimeout(focusDescription, 0)));
-
-          const accountSelect = document.getElementById('account');
-          if (accountSelect) accountSelect.addEventListener('change', () => setTimeout(focusDescription, 0));
-
-          const destinationSelect = document.getElementById('destinationAccount');
-          if (destinationSelect) destinationSelect.addEventListener('change', () => setTimeout(focusDescription, 0));
-        }
-      } catch (err) {
-        console.error('Error managing description focus:', err);
-      }
-    });
-
-    // --- START: Daily porcentajes summary script ---
-    (function() {
-      const css = `
-        .porcentajes-daily-container{display:flex;flex-direction:row;flex-wrap:nowrap;gap:10px;padding:12px;overflow-x:auto;-webkit-overflow-scrolling:touch}
-        .porc-daily-card{display:inline-block;background:#111;color:#fff;padding:10px;border-radius:8px;min-width:180px;max-width:260px;box-shadow:0 2px 6px rgba(0,0,0,0.25);flex:0 0 auto;margin:0}
-        .porc-daily-card h4{margin:0 0 8px 0;font-size:13px;font-weight:600}
-        .porc-daily-row{display:flex;justify-content:space-between;font-size:13px;margin:4px 0}
-        .porc-daily-label{opacity:0.9}
-        .porc-daily-value{font-weight:700}
-        .porc-daily-total{margin-top:8px;border-top:1px solid rgba(255,255,255,0.08);padding-top:6px;font-weight:800;color:#f1c40f}
-      `;
-      const styleEl = document.createElement('style'); styleEl.textContent = css; document.head.appendChild(styleEl);
-
-      function parseNumber(text){
-        if(!text) return 0;
-        const cleaned = String(text).replace(/\s/g,'').replace(/\$/g,'').replace(/%/g,'').replace(/\./g,'').replace(/,/g,'.');
-        const n = parseFloat(cleaned);
-        return isNaN(n) ? 0 : n;
-      }
-
-      function getVentasRows(panelSelector){
-        const container = document.querySelector(panelSelector + ' .ventas-table');
-        if(!container) return [];
-        return Array.from(container.children).filter(child => !child.classList.contains('ventas-table-header'));
-      }
-
-      function extractPercentByDate(panelSelector){
-        const rows = getVentasRows(panelSelector);
-        const items = [];
-        rows.forEach(row => {
-          const cells = Array.from(row.querySelectorAll('.ventas-table-cell'));
-          if(cells.length < 2) return;
-          const dateText = cells[1].textContent.trim();
-          const lastCell = cells[cells.length - 1];
-          const value = parseNumber(lastCell ? lastCell.textContent : '0');
-          if(value && dateText) items.push({date: dateText, value});
-        });
-        return items;
-      }
-
-      function buildDailyCards(){
-        const container = document.getElementById('porcentajesDailyContainer');
-        if(!container) return;
-        const map = new Map();
-
-        const sources = [
-          {panel: '.ventas-aldo', key: 'Aldo'},
-          {panel: '.ventas-marcos', key: 'Marcos'},
-          {panel: '.ventas-otro', key: 'Otro'},
-        ];
-
-        sources.forEach(src => {
-          const items = extractPercentByDate(src.panel);
-          items.forEach(it => {
-            const key = it.date;
-            if(!map.has(key)) map.set(key, {});
-            const entry = map.get(key);
-            entry[src.key] = (entry[src.key] || 0) + it.value;
-            map.set(key, entry);
-          });
-        });
-
-        // helper: parse date string into a Date object if possible (handles ISO yyyy-mm-dd and dd/mm/yyyy)
-        // Parse explicitly to local date parts to avoid timezone offsets that can shift weekdays.
-        function parseDateString(s){
-          if(!s || typeof s !== 'string') return null;
-          s = s.trim();
-          // Try ISO yyyy-mm-dd or yyyy/mm/dd (explicit local construction)
-          const isoMatch = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-          if(isoMatch){
-            const year = parseInt(isoMatch[1],10);
-            const month = parseInt(isoMatch[2],10) - 1;
-            const day = parseInt(isoMatch[3],10);
-            const d = new Date(year, month, day); // local date, avoids UTC shift
-            return isNaN(d) ? null : d;
-          }
-          // Try dd/mm/yyyy or d/m/yyyy
-          const dm = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-          if(dm){
-            let day = parseInt(dm[1],10), month = parseInt(dm[2],10)-1, year = parseInt(dm[3],10);
-            if(year < 100) year += 2000;
-            const d = new Date(year, month, day); // local date
-            return isNaN(d) ? null : d;
-          }
-          // Fallback: attempt Date parse but don't rely on it for weekday
-          const fallback = new Date(s);
-          return isNaN(fallback) ? null : fallback;
-        }
-
-        const weekdayNames = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
-
-        container.innerHTML = '';
-        const keys = Array.from(map.keys()).sort();
-        keys.forEach(dateKey => {
-          const entry = map.get(dateKey);
-          const card = document.createElement('div');
-          card.className = 'porc-daily-card';
-          const title = document.createElement('h4');
-
-          // Determine weekday prefix if possible
-          const parsed = parseDateString(dateKey);
-          if(parsed){
-            const weekday = weekdayNames[parsed.getDay()] || '';
-            title.textContent = weekday + ' ' + dateKey;
-          } else {
-            // fallback: show original dateKey
-            title.textContent = dateKey;
-          }
-
-          card.appendChild(title);
-
-          let dayTotal = 0;
-          ['Aldo','Marcos','Otro'].forEach(name => {
-            if(entry[name]){
-              dayTotal += entry[name];
-              const row = document.createElement('div');
-              row.className = 'porc-daily-row';
-              const label = document.createElement('div');
-              label.className = 'porc-daily-label';
-              label.textContent = name;
-              const val = document.createElement('div');
-              val.className = 'porc-daily-value';
-              // Format number and prefix with $ to match other panels
-              val.textContent = '$' + (Math.round(entry[name] * 100) / 100).toLocaleString();
-              row.appendChild(label);
-              row.appendChild(val);
-              card.appendChild(row);
-            }
-          });
-
-          // Append final total row for the day if any values exist
-          if(dayTotal > 0){
-            const totalRow = document.createElement('div');
-            totalRow.className = 'porc-daily-row porc-daily-total';
-            const totalLabel = document.createElement('div');
-            totalLabel.className = 'porc-daily-label';
-            totalLabel.textContent = 'Total';
-            const totalVal = document.createElement('div');
-            totalVal.className = 'porc-daily-value';
-            totalVal.textContent = '$' + (Math.round(dayTotal * 100) / 100).toLocaleString();
-            totalRow.appendChild(totalLabel);
-            totalRow.appendChild(totalVal);
-            card.appendChild(totalRow);
-          }
-
-          container.appendChild(card);
-        });
-
-        if(map.size === 0){
-          container.innerHTML = '<div style="color:#999;padding:10px">No hay porcentajes diarios todavía</div>';
-        }
-      }
-
-      function observeVentas(){
-        const targets = [
-          document.querySelector('.ventas-aldo .ventas-table'),
-          document.querySelector('.ventas-marcos .ventas-table'),
-          document.querySelector('.ventas-otro .ventas-table'),
-        ].filter(Boolean);
-
-        if(targets.length === 0){
-          setTimeout(() => { observeVentas(); buildDailyCards(); }, 500);
-          return;
-        }
-
-        const observer = new MutationObserver(() => buildDailyCards());
-        targets.forEach(t => observer.observe(t, {childList:true, subtree:true, characterData:true}));
-        buildDailyCards();
-      }
-
-      if(document.readyState === 'loading'){
-        document.addEventListener('DOMContentLoaded', observeVentas);
-      } else {
-        observeVentas();
-      }
-    })();
-    // --- END: Daily porcentajes summary script ---
-
-  </script>
-
-  <script>
-    // Prepend weekday name to dates inside the "Total Abonos" panel.
-    (function(){
-      const weekdayNames = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
-
-      function parseDateStringToLocal(s){
-        if(!s || typeof s !== 'string') return null;
-        s = s.trim();
-        const iso = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-        if(iso){
-          const y = parseInt(iso[1],10), m = parseInt(iso[2],10)-1, d = parseInt(iso[3],10);
-          const date = new Date(y,m,d);
-          return isNaN(date) ? null : date;
-        }
-        const dm = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-        if(dm){
-          let day = parseInt(dm[1],10), month = parseInt(dm[2],10)-1, year = parseInt(dm[3],10);
-          if(year < 100) year += 2000;
-          const date = new Date(year, month, day);
-          return isNaN(date) ? null : date;
-        }
-        const fallback = new Date(s);
-        return isNaN(fallback) ? null : fallback;
-      }
-
-      // Finds text nodes under container and replaces date text by prefixing weekday if not present (idempotent)
-      function processContainer(container){
-        if(!container) return;
-        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
-        const texts = [];
-        while(walker.nextNode()){
-          texts.push(walker.currentNode);
-        }
-
-        // global regex to find date-like substrings and weekday-before check
-        const dateRegex = /(\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})|(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/g;
-        const weekdayBeforeRegex = /(Domingo|Lunes|Martes|Mi[eé]rcoles|Jueves|Viernes|S[áa]bado)\s*$/;
-
-        texts.forEach(node => {
-          let txt = node.nodeValue;
-          if(!txt || !dateRegex.test(txt)) return;
-
-          // collect matches (so replacements from end won't shift indices)
-          dateRegex.lastIndex = 0;
-          const matches = [];
-          let m;
-          while((m = dateRegex.exec(txt)) !== null){
-            matches.push({match: m[0], index: m.index});
-          }
-          if(matches.length === 0) return;
-
-          for(let i = matches.length - 1; i >= 0; i--){
-            const {match: dateStr, index} = matches[i];
-            const lookback = txt.slice(Math.max(0, index - 20), index);
-            if(weekdayBeforeRegex.test(lookback)) continue; // already has weekday prefix
-
-            const parsed = parseDateStringToLocal(dateStr);
-            if(!parsed) continue;
-            const weekday = weekdayNames[parsed.getDay()];
-            txt = txt.slice(0, index) + (weekday + ' ' + dateStr) + txt.slice(index + dateStr.length);
-          }
-
-          if(txt !== node.nodeValue) node.nodeValue = txt;
-        });
-      }
-
-      function observeTotalAbonos(){
-        const panel = document.querySelector('.total-abonos-panel');
-        if(!panel) return;
-        // Initial pass
-        processContainer(panel);
-
-        // Observe for changes inside panel
-        const mo = new MutationObserver((mutations) => {
-          // Delay slightly to allow inserted nodes to settle
-          setTimeout(() => processContainer(panel), 10);
-        });
-        mo.observe(panel, {childList:true, subtree:true, characterData:true});
-      }
-
-      if(document.readyState === 'loading'){
-        document.addEventListener('DOMContentLoaded', observeTotalAbonos);
-      } else {
-        observeTotalAbonos();
-      }
-    })();
-  </script>
-
-  <script>
-    // Prepend weekday name to dates inside the "Boletas" panels (Aldo, Marcos, Otro)
-    (function(){
-      const weekdayNames = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
-
-      function parseDateStringToLocal(s){
-        if(!s || typeof s !== 'string') return null;
-        s = s.trim();
-        const iso = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-        if(iso){
-          const y = parseInt(iso[1],10), m = parseInt(iso[2],10)-1, d = parseInt(iso[3],10);
-          const date = new Date(y,m,d);
-          return isNaN(date) ? null : date;
-        }
-        const dm = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-        if(dm){
-          let day = parseInt(dm[1],10), month = parseInt(dm[2],10)-1, year = parseInt(dm[3],10);
-          if(year < 100) year += 2000;
-          const date = new Date(year, month, day);
-          return isNaN(date) ? null : date;
-        }
-        const fallback = new Date(s);
-        return isNaN(fallback) ? null : fallback;
-      }
-
-      // Finds text nodes under container and replaces date text by prefixing weekday if not present (idempotent)
-      function processContainer(container){
-        if(!container) return;
-        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
-        const texts = [];
-        while(walker.nextNode()){
-          texts.push(walker.currentNode);
-        }
-
-        // global regex to find date-like substrings and weekday-before check
-        const dateRegex = /(\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})|(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/g;
-        const weekdayBeforeRegex = /(Domingo|Lunes|Martes|Mi[eé]rcoles|Jueves|Viernes|S[áa]bado)\s*$/;
-
-        texts.forEach(node => {
-          let txt = node.nodeValue;
-          if(!txt || !dateRegex.test(txt)) return;
-
-          // collect matches (so replacements from end won't shift indices)
-          dateRegex.lastIndex = 0;
-          const matches = [];
-          let m;
-          while((m = dateRegex.exec(txt)) !== null){
-            matches.push({match: m[0], index: m.index});
-          }
-          if(matches.length === 0) return;
-
-          for(let i = matches.length - 1; i >= 0; i--){
-            const {match: dateStr, index} = matches[i];
-            const lookback = txt.slice(Math.max(0, index - 20), index);
-            if(weekdayBeforeRegex.test(lookback)) continue; // already has weekday prefix
-
-            const parsed = parseDateStringToLocal(dateStr);
-            if(!parsed) continue;
-            const weekday = weekdayNames[parsed.getDay()];
-            txt = txt.slice(0, index) + (weekday + ' ' + dateStr) + txt.slice(index + dateStr.length);
-          }
-
-          if(txt !== node.nodeValue) node.nodeValue = txt;
-        });
-      }
-
-      function observeBoletas(){
-        const selectors = ['.boletas-aldo', '.boletas-marcos', '.boletas-otro'];
-        const panels = selectors.map(s => document.querySelector(s)).filter(Boolean);
-        if(panels.length === 0){
-          // Try again shortly if panels not yet present
-          setTimeout(observeBoletas, 500);
-          return;
-        }
-
-        panels.forEach(panel => {
-          // initial pass
-          processContainer(panel);
-
-          // observe for changes inside panel
-          const mo = new MutationObserver(() => {
-            setTimeout(() => processContainer(panel), 10);
-          });
-          mo.observe(panel, {childList:true, subtree:true, characterData:true});
-        });
-      }
-
-      if(document.readyState === 'loading'){
-        document.addEventListener('DOMContentLoaded', observeBoletas);
-      } else {
-        observeBoletas();
-      }
-    })();
-  </script>
-
-  <!-- Sync "Salir" width to match "Guardar" -->
-  <script>
-    (function(){
-      function syncSignOutWidth() {
-        const saveBtn = document.getElementById('saveToDriveBtn');
-        const signOutBtn = document.getElementById('googleSignOutBtn');
-        if (!saveBtn || !signOutBtn) return;
-        const saveStyle = window.getComputedStyle(saveBtn);
-        signOutBtn.style.width = saveStyle.width;
-      }
-
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', syncSignOutWidth);
-      } else {
-        syncSignOutWidth();
-      }
-
-      window.addEventListener('resize', syncSignOutWidth);
-
-      const targets = [document.getElementById('saveToDriveBtn'), document.getElementById('googleSignOutBtn')].filter(Boolean);
-      if (targets.length) {
-        const mo = new MutationObserver(() => setTimeout(syncSignOutWidth, 30));
-        targets.forEach(n => mo.observe(n, { attributes: true, childList: true, subtree: true, characterData: true }));
-      }
-    })();
-  </script>
   </div>
+
+  <!-- Modal/Form -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-content">
+      <header class="modal-header">
+        <h3 id="modalTitle">Agregar Persona</h3>
+        <div class="modal-header-actions">
+          <button id="loadBtn" class="secondary load-btn" title="Cargar">Cargar</button>
+          <button id="closeModal" class="icon-btn" aria-label="Cerrar">&times;</button>
+        </div>
+      </header>
+      <form id="personForm" autocomplete="off">
+        <input type="hidden" id="personId" />
+        <div class="form-row">
+          <label>Nombre (Cong.)<input id="congName" name="congName" /></label>
+          <label>Nombre<input id="firstName" name="firstName" required /></label>
+        </div>
+        <div class="form-row">
+          <label>Apellido Paterno<input id="lastNameP" name="lastNameP" required /></label>
+          <label>Apellido Materno<input id="lastNameM" name="lastNameM" /></label>
+        </div>
+        <div class="form-row">
+          <label>Grupo<input id="group" name="group" /></label>
+          <label>Privilegio
+            <select id="privilege" name="privilege">
+              <option value="">-</option>
+              <option value="Publicador">Publicador</option>
+              <option value="Anciano">Anciano</option>
+              <option value="Siervo Ministerial">Siervo Ministerial</option>
+              <option value="Fuera">Fuera</option>
+              <option value="Inactivo">Inactivo</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Designación
+            <select id="designation" name="designation">
+              <option value="">-</option>
+              <option value="Precursor Regular">Precursor Regular</option>
+              <option value="Precursor Auxiliar">Precursor Auxiliar</option>
+              <option value="No Asignar">No Asignar</option>
+              <option value="No Bautizado">No Bautizado</option>
+              <option value="N/A">N/A</option>
+            </select>
+          </label>
+          <label>Sexo
+            <select id="sex" name="sex">
+              <option value="">-</option>
+              <option value="H">H</option>
+              <option value="M">M</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Esp
+            <select id="esp" name="esp">
+              <option value="">-</option>
+              <option value="O.O.">O.O.</option>
+              <option value="UNG">UNG</option>
+            </select>
+          </label>
+          <label>Fecha Nacimiento<input id="birthDate" name="birthDate" type="date" /></label>
+        </div>
+        <div class="form-row">
+          <label>Fecha Bautismo<input id="baptismDate" name="baptismDate" type="date" /></label>
+        </div>
+        <div class="form-row">
+          <label class="full">Dirección<textarea id="address" name="address" rows="2"></textarea></label>
+        </div>
+        <div class="form-row">
+          <label>Teléfono<input id="phone" name="phone" inputmode="tel" /></label>
+          <label>Contacto Emergencia<input id="emergencyContact" name="emergencyContact" /></label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="cancelBtn">Cancelar</button>
+          <button type="submit" class="primary" id="saveBtn">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Floating profile popup (registry detail + last 24 months activity) -->
+  <div id="profilePopup" class="profile-popup hidden" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
+    <div class="profile-popup-content">
+      <header class="profile-popup-header">
+        <h3 id="profileTitle">REGISTRO DE PUBLICADOR DE LA CONGREGACION</h3>
+        <button id="closeProfilePopup" class="icon-btn" aria-label="Cerrar popup">&times;</button>
+      </header>
+      <div class="profile-popup-body">
+        <form id="profileForm" autocomplete="off" onsubmit="return false;">
+          <div class="pp-row">
+            <label>Nombre (Cong.): <input id="pp_congName" readonly /></label>
+            <label>Nombre: <input id="pp_firstName" readonly /></label>
+            <label>Apellido Paterno: <input id="pp_lastNameP" readonly /></label>
+            <label>Apellido Materno: <input id="pp_lastNameM" readonly /></label>
+          </div>
+          <div class="pp-row">
+            <label>Fecha de nacimiento: <input id="pp_birthDate" readonly /></label>
+            <label>Fecha de bautismo: <input id="pp_baptismDate" readonly /></label>
+            <label>Sexo: <input id="pp_sex" readonly /></label>
+          </div>
+          <div class="pp-row">
+            <label>Privilegio: <input id="pp_privilege" readonly /></label>
+            <label>Designación: <input id="pp_designation" readonly /></label>
+            <label>Esp: <input id="pp_esp" readonly /></label>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <h4 style="margin:0;">Actividad - Año de servicio</h4>
+              <div style="color:var(--muted);font-size:13px;">(Septiembre - Agosto)</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <label for="pp_yearSelect" style="font-weight:700;color:var(--muted);margin:0;">Año de servicio:</label>
+              <input id="pp_yearSelect" type="number" min="1900" max="2099" style="padding:6px 8px;border-radius:8px;border:1px solid var(--subtle);background:#fff;color:var(--text);min-width:88px;width:96px;" />
+            </div>
+          </div>
+          <div id="pp_activityTable" class="pp-activity-table" role="region" aria-label="Actividad mensual">
+            <!-- rendered rows: month / participación / cursos / precursor / horas / notas -->
+          </div>
+
+
+
+          <div class="modal-actions" style="justify-content:flex-start;margin-top:12px;">
+            <button type="button" id="pp_close" class="danger">PDF</button>
+            <div id="pp_averages" style="margin-left:12px; display:flex; gap:12px; align-items:center; font-size:13px; color:var(--text);">
+              <div style="background:#fff; border:1px solid var(--subtle); border-radius:8px; padding:8px 10px; min-width:140px; text-align:center;">
+                <div style="font-weight:700; color:var(--muted); font-size:12px;">Promedio cursos</div>
+                <div id="pp_avgCourses" style="font-weight:700; font-size:15px;">0</div>
+              </div>
+              <div style="background:#fff; border:1px solid var(--subtle); border-radius:8px; padding:8px 10px; min-width:140px; text-align:center;">
+                <div style="font-weight:700; color:var(--muted); font-size:12px;">Promedio horas</div>
+                <div id="pp_avgHours" style="font-weight:700; font-size:15px;">0</div>
+              </div>
+              <!-- Meta horas (visible only for Precursor Regular) -->
+              <div id="pp_meta" style="background:#fff; border:1px solid var(--subtle); border-radius:8px; padding:8px 10px; min-width:140px; text-align:center; display:none;">
+                <div style="font-weight:700; color:var(--muted); font-size:12px;">Meta horas</div>
+                <div id="pp_metaHours" style="font-weight:700; font-size:15px;">600</div>
+              </div>
+              <!-- Faltante / Sobrante: Total horas - Meta horas (visible only for Precursor Regular) -->
+              <div id="pp_diffWrap" style="background:#fff; border:1px solid var(--subtle); border-radius:8px; padding:8px 10px; min-width:160px; text-align:center; display:none;">
+                <div style="font-weight:700; color:var(--muted); font-size:12px;">Faltante / Sobrante</div>
+                <div id="pp_diff" style="font-weight:700; font-size:15px;">0</div>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <script type="module" src="app.js"></script>
 </body>
 </html>
