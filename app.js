@@ -4242,7 +4242,9 @@ function handleCredentialResponse(response) {
   try {
     const jwt = response.credential;
     const payload = JSON.parse(atob(jwt.split(".")[1]));
-    const userData = { name: payload.name, email: payload.email, picture: payload.picture };
+    const userData = { name: payload.name, email: payload.email, picture: payload.picture, id_token: response.credential };
+    // persist basic user info so page reloads keep the signed-in UI
+    try { localStorage.setItem('google_user_v1', JSON.stringify(userData)); } catch (e) { /* ignore */ }
     onGoogleUserLoggedIn(userData);
   } catch (err) {
     console.error("Error al procesar credential response", err);
@@ -4253,6 +4255,9 @@ function handleCredentialResponse(response) {
 /* Actualiza interfaz al iniciar sesión con Google */
 function onGoogleUserLoggedIn(userData) {
   window.currentGoogleUser = userData;
+  // persist a minimal representation so reload keeps the UI signed-in
+  try { localStorage.setItem('google_user_v1', JSON.stringify({ name: userData.name, email: userData.email, picture: userData.picture })); } catch (e) { /* ignore */ }
+
   const infoElement = document.getElementById("googleUserInfo");
   const btnContainer = document.getElementById("googleSignInButton");
   if (infoElement) {
@@ -4326,6 +4331,21 @@ window.onload = function() {
     }
   } catch (e) {
     console.error("Error inicializando Google Identity ID:", e);
+  }
+
+  // restore persisted Google user (so page refresh does not "sign out" the UI)
+  try {
+    const stored = localStorage.getItem('google_user_v1');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed && parsed.email) {
+        // populate UI as logged-in (we don't restore Drive access token here;
+        // Drive actions will request consent/token as needed)
+        onGoogleUserLoggedIn(parsed);
+      }
+    }
+  } catch (err) {
+    console.error('Error restaurando usuario de Google desde localStorage', err);
   }
 
   // Inicializar token client para Drive (scope limitado a drive.file)
