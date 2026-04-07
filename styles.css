@@ -1,0 +1,872 @@
+:root{
+  /* Light, macOS-like theme */
+  --bg: #f6f7f8;
+  --card: #ffffff;
+  --panel: rgba(255,255,255,0.9);
+  --muted: #6b7280;        /* subtle gray for labels */
+  --text: #0f1720;         /* primary text (darker than pure black) */
+  --subtle: #e6e9ee;       /* borders and dividers */
+  --accent: #0b66ff;       /* primary action blue (macOS style) */
+  --accent-strong: #0b66ff;
+  --accent-warm: #ff7a1a;  /* warm orange for highlights */
+  --danger: #e02424;
+  --radius:12px;
+  --gap:12px;
+  --pad:14px;
+  font-size:14px;
+  font-family: "San Francisco Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+*{box-sizing:border-box}
+html,body,#app{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  display:flex;
+  align-items:flex-start;
+  justify-content:flex-start;
+  padding:20px;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  color:var(--text);
+}
+
+/* Container */
+#app{
+  width:100%;
+  max-width:none;
+  padding:0 20px;
+}
+
+/* Banner above toolbar */
+.banner{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.8), rgba(248,249,250,0.9));
+  border:1px solid var(--subtle);
+  color: var(--text);
+  font-weight:700;
+  padding:12px 16px;
+  border-radius:10px;
+  margin-bottom:12px;
+  letter-spacing:0.2px;
+  font-size:14px;
+  box-shadow: 0 4px 14px rgba(16,24,40,0.04);
+}
+.banner-title{
+  color:var(--text);
+  font-weight:700;
+  font-size:18px;
+  text-align:left;
+}
+/* inline editable input that replaces the title while editing */
+.banner-title-input{
+  font-family: inherit;
+  font-size:18px;
+  font-weight:700;
+  padding:6px 8px;
+  border-radius:8px;
+  border:1px solid var(--subtle);
+  width:100%;
+  max-width:640px;
+  box-sizing:border-box;
+  color: var(--text);
+  background: transparent;
+}
+.banner-controls{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+/* small icon style for banner actions */
+.icon-btn{
+  border:0;
+  background:transparent;
+  color:var(--text);
+  padding:6px 8px;
+  border-radius:8px;
+  cursor:pointer;
+  font-weight:600;
+}
+.icon-btn:hover{
+  background: rgba(11,102,255,0.06);
+}
+.group-seq{
+  width:30px;                  /* match badge wrapper width */
+  min-width:30px;
+  height:20px;                 /* match badge wrapper height */
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:12px;
+  color:var(--muted);
+  font-weight:700;
+  box-sizing:border-box;
+  line-height:1;
+  /* ensure it doesn't affect row layout when hidden */
+  visibility:visible;
+}
+
+/* small spacing tweak so name text aligns well with badge+seq block */
+#groupsPopup .group-seq{
+  margin:0;
+  padding:0;
+}
+
+/* keep the hidden helper */
+.hidden{display:none}
+
+/* Ensure specific banner action buttons share exactly the same width */
+#guardarRespaldoBtn,
+#cargarRespaldoBtn,
+#logoutGoogleBtn,
+#backupBtn {
+  width: 110px;           /* exact same width for visual consistency */
+  box-sizing: border-box; /* include padding/border in width */
+}
+
+/* Ensure the buttons remain touch-friendly and don't shrink on small screens */
+.banner-controls button.secondary {
+  min-width: 110px;
+}
+
+/* Toolbar */
+.toolbar{
+  display:flex;
+  gap:10px;
+  margin-bottom:14px;
+  align-items:center;
+  width:100%;
+}
+
+/* Contextual options bar placed under the toolbar */
+.options-bar{
+  background:var(--card);
+  color:var(--text);
+  border-radius:10px;
+  padding:10px;
+  margin-bottom:14px;
+  min-height:48px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  box-shadow: 0 1px 0 rgba(16,24,40,0.03) inset;
+  border:1px solid var(--subtle);
+  width:100%;
+}
+.primary{
+  background: linear-gradient(180deg, var(--accent), #0657d6);
+  color:#fff;
+  border:0;
+  padding:10px 14px;
+  border-radius:10px;
+  font-weight:700;
+  cursor:pointer;
+  box-shadow: 0 6px 18px rgba(11,102,255,0.12);
+}
+.primary:active{transform:translateY(1px)}
+
+/* Secondary button */
+.secondary{
+  background:transparent;
+  color:var(--text);
+  border:1px solid var(--subtle);
+  padding:10px 14px;
+  border-radius:10px;
+  font-weight:600;
+  cursor:pointer;
+}
+.secondary:hover{
+  background: rgba(11,102,255,0.06);
+}
+.secondary:active{transform:translateY(1px)}
+
+/* Active state for secondary buttons (use subtle blue outline) */
+.secondary.active{
+  background: rgba(11,102,255,0.06);
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(11,102,255,0.06);
+}
+
+/* Danger button */
+.danger{
+  background: var(--danger);
+  color: white;
+  border:0;
+  padding:10px 14px;
+  border-radius:10px;
+  font-weight:600;
+  cursor:pointer;
+  box-shadow: 0 6px 18px rgba(224,36,36,0.08);
+}
+.danger:hover{
+  background:#c81c1c;
+}
+.spacer{flex:1}
+#search{
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid var(--subtle);
+  width:240px;
+  background:#ffffff;
+  color:var(--text);
+  box-shadow: inset 0 1px 0 rgba(16,24,40,0.02);
+}
+
+/* wrapper to keep count badge and search aligned */
+.search-wrap{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+/* small rounded badge showing total records */
+.count-badge{
+  min-width:40px;
+  height:36px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 8px;
+  border-radius:10px;
+  background: linear-gradient(180deg, rgba(11,102,255,0.12), rgba(11,102,255,0.06));
+  color: var(--accent-strong);
+  font-weight:700;
+  border:1px solid rgba(11,102,255,0.08);
+  box-shadow: inset 0 -1px 0 rgba(255,255,255,0.4);
+  font-size:13px;
+}
+
+/* Hide the numeric badge on very small screens to preserve space */
+@media (max-width:700px){
+  .count-badge{ display:none; }
+}
+
+/* Trash button beside search */
+.trash-btn{
+  min-width:44px;
+  min-height:44px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:18px;
+  padding:6px 8px;
+  border-radius:10px;
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  cursor:pointer;
+}
+.trash-btn:hover{
+  background: rgba(11,102,255,0.06);
+  color: var(--text);
+}
+
+/* Table */
+.table-wrapper{
+  background:var(--card);
+  border-radius:var(--radius);
+  padding:12px;
+  box-shadow: 0 10px 30px rgba(16,24,40,0.06);
+  overflow:auto;
+  width:100%;
+  border:1px solid var(--subtle);
+}
+.grid{
+  width:100%;
+  border-collapse:collapse;
+  min-width:0;
+  table-layout:fixed;
+}
+/* Header styling for light mode */
+.grid thead th{
+  text-align:center;
+  font-size:13px;
+  color:var(--muted);
+  padding:14px;
+  border-bottom:1px solid var(--subtle);
+  position:sticky;
+  top:0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(250,250,251,0.96));
+  white-space:normal;
+  overflow:visible;
+  text-overflow:clip;
+  line-height:1.15;
+  word-break:break-word;
+  hyphens:auto;
+  vertical-align:middle;
+  transition: color .12s ease, font-weight .12s ease;
+}
+.grid td{
+  padding:12px 14px;
+  border-bottom:1px solid rgba(15,23,42,0.04);
+  vertical-align:middle;
+  font-size:14px;
+  color:var(--text);
+  white-space:normal;
+  overflow-wrap:break-word;
+  word-break:break-word;
+  hyphens:auto;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  text-align:center;
+}
+/* Ensure header stickiness and resizer overlay remain correct */
+.grid thead th{
+  text-align:center;
+  font-size:13px;
+  color:var(--muted);
+  padding:14px;
+  border-bottom:1px solid var(--subtle);
+  position:sticky;
+  top:0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,251,0.98));
+  white-space:normal;
+  overflow:visible;
+  text-overflow:clip;
+  position:sticky;
+  z-index:2;
+  vertical-align:middle;
+  transition: color .12s ease, font-weight .12s ease;
+}
+
+/* On hover, highlight header text in darker gray */
+.grid thead th:hover {
+  color: var(--text);
+  font-weight:700;
+}
+
+/* small filter button inside headers (Registro view) */
+.col-filter{
+  appearance:none;
+  border:0;
+  background:transparent;
+  color:var(--muted);
+  padding:4px 6px;
+  margin-left:6px;
+  border-radius:6px;
+  cursor:pointer;
+  font-size:12px;
+}
+.col-filter:hover{
+  background: rgba(11,102,255,0.06);
+  color: var(--accent);
+}
+.col-filter.active{
+  background: var(--accent);
+  color: #fff;
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,0.06);
+}
+
+/* Floating filter panel under header filter buttons */
+.filter-panel{
+  background: #fff;
+  border: 1px solid var(--subtle);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(16,24,40,0.08);
+  padding:12px;
+  font-size:13px;
+  color:var(--text);
+}
+.filter-panel-title{
+  font-weight:700;
+  margin-bottom:8px;
+  color:var(--text);
+}
+.filter-panel-inputwrap{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  margin-bottom:8px;
+}
+.filter-panel-input{
+  flex:1;
+  padding:10px 12px;
+  border-radius:8px;
+  border:1px solid var(--subtle);
+  font-size:13px;
+  background:#fff;
+  color:var(--text);
+}
+.filter-panel-clear{
+  background:transparent;
+  border:0;
+  color:var(--muted);
+  padding:6px 8px;
+  border-radius:8px;
+  cursor:pointer;
+}
+.filter-panel-list{
+  max-height:220px;
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin-bottom:8px;
+}
+.filter-panel-item{
+  text-align:left;
+  padding:8px;
+  border-radius:8px;
+  border:1px solid transparent;
+  background:transparent;
+  cursor:pointer;
+  font-size:13px;
+  color:var(--text);
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.filter-panel-item:hover{
+  background: rgba(11,102,255,0.04);
+  border-color: rgba(11,102,255,0.06);
+}
+
+/* Visual style for active (selected) filter options.
+   Shows a warm accent background with contrasting text and subtle border. */
+.filter-panel-item.selected{
+  background: linear-gradient(180deg, rgba(255,122,26,0.18), rgba(255,122,26,0.12));
+  color: #6a2b00; /* darker warm text to remain legible */
+  border-color: rgba(255,122,26,0.28);
+  box-shadow: inset 0 -2px 0 rgba(255,255,255,0.06);
+}
+.filter-panel-empty{
+  color:var(--muted);
+  padding:6px;
+}
+.filter-panel-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+}
+
+/* table cells */
+.grid td{
+  padding:12px 14px;
+  border-bottom:1px solid rgba(15,23,42,0.04);
+  vertical-align:middle;
+  font-size:14px;
+  white-space:normal;
+  overflow-wrap:break-word;
+  word-break:break-word;
+  hyphens:auto;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  text-align:center;
+}
+
+/* "Nombre (Cong.)" cell is always bold and highlights on hover */
+.grid td.cong-cell{
+  transition: color .12s ease, font-weight .12s ease;
+  font-weight: 700;
+}
+
+/* Recent baptism age indicator (red until 1 year 6 months) */
+.age-recent{
+  color: var(--danger);
+  font-weight: 700;
+}
+.grid td.cong-cell:hover{
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+
+/* Selected row styling: subtle light highlight */
+.grid tr.selected td{
+  background: rgba(11,102,255,0.06);
+  transition: background-color .12s ease;
+  color:var(--text);
+}
+
+
+
+/* Resizer handle */
+.th-resizer{
+  position:absolute;
+  top:6px;
+  right:0;
+  width:10px;
+  height:calc(100% - 12px);
+  cursor:col-resize;
+  z-index:5;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.th-resizer::after{
+  content:'';
+  width:2px;
+  height:60%;
+  background:rgba(15,23,42,0.06);
+  border-radius:2px;
+}
+
+/* Modal */
+.modal{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(15,23,42,0.06);
+  padding:20px;
+  z-index:40;
+}
+
+/* Numeric inputs used in activity table (compact, with spinner) */
+.num-input{
+  -moz-appearance: textfield;
+}
+.num-input::-webkit-outer-spin-button,
+.num-input::-webkit-inner-spin-button {
+  -webkit-appearance: auto;
+  margin: 0;
+}
+.num-input{ font-size:13px; padding:8px 10px; color:var(--text); background:#fff; border:1px solid var(--subtle); }
+
+/* Activity comments wrapper and inner editable box styled like the numeric inputs */
+.act-comments{
+  position:relative;               /* allow absolutely positioned info icon inside */
+  border-radius:8px;
+  padding:0;                        /* inner editable handles padding */
+  min-height:40px;
+  max-height:140px;
+  background: transparent;
+  box-sizing:border-box;
+}
+
+/* actual contenteditable area inside the wrapper */
+.act-comments-input{
+  border:1px solid var(--subtle);
+  border-radius:8px;
+  padding:8px 10px;
+  padding-right:36px;              /* room for the info icon which sits in the wrapper */
+  min-height:40px;
+  max-height:140px;
+  overflow:auto;
+  background: #fff;
+  box-sizing:border-box;
+  font-size:13px;
+  text-align:left;
+  white-space:pre-wrap;
+  word-break:break-word;
+  line-height:1.25;
+  color: var(--text);
+}
+
+/* circular info icon placed at the end (inside wrapper) of the comment box */
+.comment-info{
+  position:absolute;
+  right:8px;
+  bottom:8px;
+  width:24px;
+  height:24px;
+  border-radius:50%;
+  border:0;
+  background: rgba(11,102,255,0.08);
+  color: var(--accent-strong);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+  font-size:12px;
+  cursor:default;
+  box-shadow: 0 2px 6px rgba(11,102,255,0.06);
+}
+.comment-info:focus{
+  outline: none;
+  box-shadow: 0 2px 10px rgba(11,102,255,0.14);
+}
+
+/* Small "tab" panel displayed when selecting a month under the "Seleccionar mes" button */
+.month-tab{
+  background: #fff;
+  border: 1px solid var(--subtle);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(16,24,40,0.08);
+  padding:12px;
+  display:flex;
+  gap:8px;
+  align-items:center;
+  min-width:220px;
+  z-index:9999;
+}
+.month-tab-input{
+  padding:8px;
+  border-radius:8px;
+  border:1px solid var(--subtle);
+  background: #fff;
+  color: var(--text);
+}
+
+/* placeholder behavior for inner contenteditable */
+.act-comments-input:empty:before{
+  content: attr(data-placeholder);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* keep the hidden helper */
+.hidden{display:none}
+.modal-content{
+  width:100%;
+  max-width:640px;
+  background:var(--card);
+  border-radius:14px;
+  box-shadow:0 18px 50px rgba(16,24,40,0.08);
+  overflow:hidden;
+  border:1px solid var(--subtle);
+}
+.modal-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:16px 20px;
+  border-bottom:1px solid var(--subtle);
+  position:relative;
+}
+
+/* container for header actions so we can position load button near top-right */
+.modal-header-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+/* "Cargar" button styling (appears to the left of the close icon in the header) */
+.modal-header .load-btn{
+  padding:8px 12px;
+  border-radius:8px;
+  font-weight:600;
+  cursor:pointer;
+  border:1px solid var(--subtle);
+  background:transparent;
+  color:var(--text);
+}
+
+/* ensure the close icon remains visually primary but not too large */
+.modal-header .icon-btn{
+  font-size:20px;
+  line-height:1;
+  color:var(--muted);
+}
+
+/* Responsive tweak: keep header actions compact on small screens */
+@media (max-width:700px){
+  .modal-header .load-btn{
+    padding:6px 10px;
+    font-size:13px;
+  }
+}
+.icon-btn{
+  border:0;
+  background:transparent;
+  font-size:20px;
+  line-height:1;
+  cursor:pointer;
+  color:var(--muted);
+}
+form{padding:16px 20px 22px}
+.form-row{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  margin-bottom:12px;
+  width:100%;
+}
+
+/* label + control horizontally aligned, control fills remaining width */
+label{
+  display:flex;
+  flex-direction:row;
+  align-items:center;
+  gap:10px;
+  font-size:13px;
+  color:var(--muted);
+  width:100%;
+}
+
+/* ensure any optional label span (not currently used) doesn't force a large fixed column */
+label > span{
+  flex:0 0 120px;
+  font-weight:600;
+  color:var(--muted);
+  white-space:nowrap;
+  text-align:left;
+}
+
+/* controls fill available space and wrap nicely on small widths */
+label input,
+label textarea,
+label select{
+  margin-top:0;
+  padding:10px 12px;
+  border-radius:10px;
+  border:1px solid var(--subtle);
+  font-size:14px;
+  flex:1 1 0;
+  min-width:0;
+  background:#fff;
+  color:var(--text);
+}
+label textarea{padding:10px}
+label.full{width:100%}
+.form-row > label{width:100%}
+
+/* Actions */
+.modal-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  margin-top:8px;
+}
+
+/* Responsive */
+@media (max-width:1000px){
+  body{padding:14px}
+  .modal-content{max-width:92vw}
+}
+@media (max-width:700px){
+  .grid{min-width:0}
+  .form-row{flex-direction:column}
+  #search{display:none}
+}
+
+/* Profile popup styles */
+.profile-popup{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(15,23,42,0.3);
+  padding:18px;
+  z-index:60;
+}
+.profile-popup-content{
+  width:100%;
+  max-width:920px;
+  background:var(--card);
+  border-radius:10px;
+  box-shadow:0 18px 48px rgba(16,24,40,0.18);
+  border:1px solid var(--subtle);
+  /* tightly constrain popup so it fits within the viewport without triggering vertical scrollbar */
+  max-height: calc(100vh - 40px);
+  display:flex;
+  flex-direction:column;
+  overflow:visible;
+  padding:6px 0;
+}
+.profile-popup-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 12px;
+  border-bottom:1px solid var(--subtle);
+}
+.profile-popup-body{
+  padding:8px 10px 10px;
+  /* make the body flexible so content adapts and avoids creating a vertical scrollbar */
+  flex:1 1 auto;
+  max-height: none;
+  overflow: visible;
+}
+.profile-popup .pp-row{
+  display:flex;
+  gap:8px;
+  margin-bottom:8px;
+  flex-wrap:wrap;
+}
+.profile-popup label{
+  display:flex;
+  flex-direction:column;
+  font-size:12px;
+  color:var(--muted);
+  flex:1 1 180px;
+}
+.profile-popup input[readonly], .profile-popup textarea[readonly]{
+  padding:6px 8px;
+  border-radius:6px;
+  border:1px solid var(--subtle);
+  background:#fbfbfd;
+  color:var(--text);
+  font-size:13px;
+}
+.pp-activity-table{
+  margin-top:6px;
+  border:1px solid var(--subtle);
+  border-radius:8px;
+  /* keep activity table compact and let grid items wrap to avoid overflow */
+  overflow: visible;
+  max-height: none;
+  width:100%;
+  box-sizing:border-box;
+  font-size:12px;
+  padding:6px;
+}
+
+/* make activity table compact so all months fit vertically */
+.pp-activity-table .pp-head, .pp-activity-table .pp-row-act{
+  display:grid;
+  /* make the first column (Año / Mes) a bit wider so month label fits on one line,
+     keep the next four columns uniform and the final "Notas" column slightly larger */
+  grid-template-columns: 1.4fr repeat(4, 1fr) 1.6fr;
+  gap:6px;
+  align-items:center;
+  padding:6px 8px;
+  border-bottom:1px solid rgba(15,23,42,0.03);
+  background: linear-gradient(180deg, rgba(250,250,251,0.98), rgba(255,255,255,0.98));
+  font-weight:700;
+  font-size:12px;
+  line-height:1.1;
+}
+
+/* center header cells so each activity column title is visually centered */
+.pp-activity-table .pp-head div{
+  padding:4px 6px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
+.pp-activity-table .pp-row-act{
+  font-weight:400;
+  background:transparent;
+}
+/* Center contents of each activity cell both horizontally and vertically
+   so month data, participation, counts and notes display uniformly centered. */
+.pp-activity-table .pp-row-act div{
+  padding:4px 6px;
+  min-height:20px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  gap:6px;
+  overflow-wrap:break-word;
+  word-break:break-word;
+}
+.pp-activity-table .pp-total{
+  display:flex;
+  justify-content:flex-end;
+  padding:6px 8px;
+  font-weight:700;
+  gap:12px;
+  font-size:13px;
+}
+/* ensure popup's action row stays visible and compact */
+.profile-popup .modal-actions{
+  padding:8px 12px;
+  display:flex;
+  justify-content:flex-start;
+  gap:8px;
+  border-top:1px solid var(--subtle);
+  /* keep actions visible by sticking them to the bottom of the popup body */
+  position:sticky;
+  bottom:0;
+  background: var(--card);
+  z-index:10;
+  /* subtle separation and slight elevation so it doesn't visually merge with scrolling content */
+  box-shadow: 0 -6px 18px rgba(16,24,40,0.04);
+}
+.hidden{display:none}
