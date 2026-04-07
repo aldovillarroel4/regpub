@@ -4275,10 +4275,18 @@ async function signOutGoogle() {
     // revoke Drive access token if available
     if (driveAccessToken && window.google && google.accounts && google.accounts.oauth2 && typeof google.accounts.oauth2.revoke === 'function') {
       try {
-        // revoke token; callback is optional
         google.accounts.oauth2.revoke(driveAccessToken, () => {});
       } catch (e) {
         console.warn('Revoke failed', e);
+      }
+    }
+
+    // attempt to revoke the ID token (if present) to encourage account chooser to reappear
+    if (window.google && google.accounts && google.accounts.id && window.currentGoogleUser && window.currentGoogleUser.id_token && typeof google.accounts.id.revoke === 'function') {
+      try {
+        google.accounts.id.revoke(window.currentGoogleUser.id_token, () => {});
+      } catch (e) {
+        // ignore if not supported
       }
     }
   } catch (err) {
@@ -4298,10 +4306,20 @@ async function signOutGoogle() {
     infoElement.textContent = "";
   }
   if (btnContainer) {
-    btnContainer.style.display = "";
+    // re-render the Google Sign-In button so the account chooser / selector appears again
+    try {
+      btnContainer.style.display = "";
+      btnContainer.innerHTML = "";
+      if (window.google && google.accounts && google.accounts.id && typeof google.accounts.id.renderButton === 'function') {
+        google.accounts.id.renderButton(btnContainer, { theme: "outline", size: "large", text: "continue_with" });
+        try { google.accounts.id.disableAutoSelect(); } catch (e) {}
+      }
+    } catch (e) {
+      btnContainer.style.display = "";
+    }
   }
 
-  // disable auto-select so next signin prompts again
+  // also disable auto-select as a fallback
   try { if (window.google && google.accounts && google.accounts.id && typeof google.accounts.id.disableAutoSelect === 'function') google.accounts.id.disableAutoSelect(); } catch (e) {}
 
   alert('Sesión de Google cerrada.');
