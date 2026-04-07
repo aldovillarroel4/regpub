@@ -184,10 +184,10 @@ function saveBackupToDrive() {
   });
 }
 
-/* Busca el último archivo de respaldo en la carpeta DRIVE_FOLDER_ID y devuelve {id,name} */
-async function findLatestBackupFile() {
+/* Busca el último archivo de respaldo en la carpeta DRIVE_FOLDER_ID */
+async function findLatestBackupFileId() {
   try {
-    const query = `'${DRIVE_FOLDER_ID}' in parents and name contains 'RESPALDO-REGPUB' and trashed = false`;
+    const query = `'${DRIVE_FOLDER_ID}' in parents and name contains 'RESPALDO-REGPUB.json' and trashed = false`;
     const url = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(query) + "&orderBy=createdTime desc&pageSize=1&fields=files(id,name,createdTime)";
     const response = await fetch(url, { headers: { Authorization: "Bearer " + driveAccessToken } });
     if (!response.ok) {
@@ -196,27 +196,27 @@ async function findLatestBackupFile() {
     }
     const data = await response.json();
     if (!data.files || data.files.length === 0) return null;
-    return { id: data.files[0].id, name: data.files[0].name };
+    return data.files[0].id;
   } catch (err) {
-    console.error("Error en findLatestBackupFile:", err);
+    console.error("Error en findLatestBackupFileId:", err);
     return null;
   }
 }
 
 /* Carga el último respaldo de la carpeta DRIVE_FOLDER_ID y aplica restoreAppState */
-async function loadLatestBackupFromDrive() {
+function loadLatestBackupFromDrive() {
   if (!window.currentGoogleUser) {
     alert("Primero debes iniciar sesión con Google.");
     return;
   }
   ensureDriveAccessToken(async () => {
     try {
-      const fileObj = await findLatestBackupFile();
-      if (!fileObj || !fileObj.id) {
+      const fileId = await findLatestBackupFileId();
+      if (!fileId) {
         alert("No se encontró ningún respaldo en Google Drive.");
         return;
       }
-      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileObj.id}?alt=media`;
+      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
       const response = await fetch(downloadUrl, { headers: { Authorization: "Bearer " + driveAccessToken } });
       if (!response.ok) {
         console.error("Error al descargar respaldo desde Drive", await response.text());
@@ -225,13 +225,10 @@ async function loadLatestBackupFromDrive() {
       }
       const state = await response.json();
       restoreAppState(state);
-      // persist info about the loaded backup filename
-      try { localStorage.setItem('last_loaded_backup_v1', fileObj.name || 'Drive backup'); } catch(e){}
-      updateLastBackupUI();
       alert("Respaldo cargado correctamente desde Google Drive.");
     } catch (err) {
       console.error("Error cargando respaldo desde Drive:", err);
-      alert("Error al cargar respaldo en Google Drive.");
+      alert("Error al cargar respaldo desde Google Drive.");
     }
   });
 }
@@ -269,15 +266,6 @@ window.addEventListener('load', function() {
     console.warn("No se pudo inicializar google.accounts.oauth2 en este momento:", err);
   }
 
-  // small helper to update the "último respaldo cargado" indicator
-  function updateLastBackupUI(){
-    try{
-      const el = document.getElementById('lastBackupName');
-      const info = localStorage.getItem('last_loaded_backup_v1');
-      if(el) el.textContent = info ? info : '—';
-    }catch(e){}
-  }
-
   // Wiring de botones de guardar/cargar respaldo
   const guardarBtn = document.getElementById("guardarRespaldoBtn");
   const cargarBtn = document.getElementById("cargarRespaldoBtn");
@@ -295,9 +283,6 @@ window.addEventListener('load', function() {
       onGoogleUserLoggedIn(ud);
     }
   } catch (e) { /* ignore parsing errors */ }
-
-  // restore and show last loaded backup info
-  updateLastBackupUI();
 });
 
 /* per-mode column filters: keep Registry and Activity filters separate so they don't interfere */
@@ -2889,12 +2874,6 @@ importFile.addEventListener('change', (e) => {
       });
       save();
       render(searchInput.value);
-      // persist last loaded backup filename (use the uploaded file's name if available)
-      try {
-        const fName = (e.target && e.target.files && e.target.files[0] && e.target.files[0].name) ? e.target.files[0].name : 'Importado localmente';
-        localStorage.setItem('last_loaded_backup_v1', fName);
-        updateLastBackupUI();
-      } catch (e) {}
       alert('Importación completada.');
     }catch(err){
       alert('Error al importar: ' + (err && err.message ? err.message : err));

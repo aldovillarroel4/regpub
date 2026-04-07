@@ -21,22 +21,12 @@
       <div class="banner-title">REGISTRO DE PUBLICADORES - CONGREGACIÓN OESTE</div>
       <div class="banner-controls" style="position:relative; display:flex; align-items:center; gap:12px;">
       <!-- Sección de inicio de sesión con Google y botones de respaldo (moved here so it's left of Respaldo) -->
-      <div id="googleSignInSection" style="display:flex; gap:12px; align-items:flex-start;">
+      <div id="googleSignInSection" style="display:flex; gap:8px; align-items:center;">
         <div id="googleSignInButton"></div>
-        <p id="googleUserInfo" style="display:none;margin:0;font-weight:600;color:var(--muted); align-self:flex-start;"></p>
-
-        <!-- stacked backup buttons: Guardar arriba, Cargar abajo with last-backup indicator to the left of Cargar -->
-        <div style="display:flex; flex-direction:column; gap:6px; align-items:center;">
-          <button id="guardarRespaldoBtn" class="secondary" style="white-space:nowrap;">Guardar</button>
-
-          <!-- Row: Cargar centered directly under Guardar; indicator visually placed to the left of the centered button -->
-          <div style="display:flex; align-items:center; gap:8px;">
-            <div id="lastBackupInfo" style="font-size:12px;color:var(--muted); white-space:nowrap;">Último respaldo cargado: <span id="lastBackupName">—</span></div>
-            <button id="cargarRespaldoBtn" class="secondary" style="white-space:nowrap; margin:0;">Cargar</button>
-          </div>
-        </div>
-
-        <button id="googleSignOutBtn" class="secondary" style="white-space:nowrap; display:none; margin-left:6px; align-self:flex-start;">Salir</button>
+        <p id="googleUserInfo" style="display:none;margin:0;font-weight:600;color:var(--muted);"></p>
+        <button id="guardarRespaldoBtn" class="secondary" style="white-space:nowrap;">Guardar</button>
+        <button id="cargarRespaldoBtn" class="secondary" style="white-space:nowrap;">Cargar</button>
+        <button id="googleSignOutBtn" class="secondary" style="white-space:nowrap; display:none; margin-left:6px;">Salir</button>
       </div>
 
       <div style="position:relative;">
