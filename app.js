@@ -4262,7 +4262,7 @@ function onGoogleUserLoggedIn(userData) {
   const btnContainer = document.getElementById("googleSignInButton");
   if (infoElement) {
     infoElement.style.display = "block";
-    infoElement.textContent = `Sesión iniciada como ${userData.name} (${userData.email})`;
+    infoElement.textContent = 'Sesion: CONGREGACION OESTE';
   }
   if (btnContainer) {
     btnContainer.style.display = "none";
