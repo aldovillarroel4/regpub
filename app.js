@@ -4269,6 +4269,44 @@ function onGoogleUserLoggedIn(userData) {
   }
 }
 
+/* Cerrar sesión de Google: revoca token Drive si existe, limpia estado y UI */
+async function signOutGoogle() {
+  try {
+    // revoke Drive access token if available
+    if (driveAccessToken && window.google && google.accounts && google.accounts.oauth2 && typeof google.accounts.oauth2.revoke === 'function') {
+      try {
+        // revoke token; callback is optional
+        google.accounts.oauth2.revoke(driveAccessToken, () => {});
+      } catch (e) {
+        console.warn('Revoke failed', e);
+      }
+    }
+  } catch (err) {
+    console.error('Error intentando revocar token', err);
+  }
+
+  // clear local state
+  driveAccessToken = null;
+  try { localStorage.removeItem('google_user_v1'); } catch (e) {}
+  window.currentGoogleUser = null;
+
+  // update UI: show sign-in button, hide user info
+  const infoElement = document.getElementById("googleUserInfo");
+  const btnContainer = document.getElementById("googleSignInButton");
+  if (infoElement) {
+    infoElement.style.display = "none";
+    infoElement.textContent = "";
+  }
+  if (btnContainer) {
+    btnContainer.style.display = "";
+  }
+
+  // disable auto-select so next signin prompts again
+  try { if (window.google && google.accounts && google.accounts.id && typeof google.accounts.id.disableAutoSelect === 'function') google.accounts.id.disableAutoSelect(); } catch (e) {}
+
+  alert('Sesión de Google cerrada.');
+}
+
 /* Funciones de estado de la app (plantilla) */
 function getAppState() {
   // Devuelve un objeto con el estado que se desea respaldar.
@@ -4363,11 +4401,16 @@ window.onload = function() {
     console.error("Error inicializando drive token client:", err);
   }
 
-  // Asignar handlers a botones de guardar/cargar respaldo
+  // Asignar handlers a botones de guardar/cargar respaldo y salir
   const guardarBtn = document.getElementById("guardarRespaldoBtn");
   const cargarBtn = document.getElementById("cargarRespaldoBtn");
+  const salirBtn = document.getElementById("salirBtn");
   if (guardarBtn) guardarBtn.addEventListener("click", saveBackupToDrive);
   if (cargarBtn) cargarBtn.addEventListener("click", loadLatestBackupFromDrive);
+  if (salirBtn) salirBtn.addEventListener("click", () => {
+    // confirm optional: close directly
+    signOutGoogle();
+  });
 };
 
 /* Asegura que exista un access token válido antes de usar Drive */
