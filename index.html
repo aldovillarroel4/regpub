@@ -19,16 +19,7 @@
   <div id="app">
     <div class="banner" role="banner">
       <div class="banner-title">REGISTRO DE PUBLICADORES - CONGREGACIÓN OESTE</div>
-      <div class="banner-controls" style="position:relative; display:flex; align-items:center; gap:12px;">
-      <!-- Sección de inicio de sesión con Google y botones de respaldo (moved here so it's left of Respaldo) -->
-      <div id="googleSignInSection" style="display:flex; gap:8px; align-items:center;">
-        <div id="googleSignInButton"></div>
-        <p id="googleUserInfo" style="display:none;margin:0;font-weight:600;color:var(--muted);"></p>
-        <button id="guardarRespaldoBtn" class="secondary" style="white-space:nowrap;">Guardar</button>
-        <button id="cargarRespaldoBtn" class="secondary" style="white-space:nowrap;">Cargar</button>
-        <button id="googleSignOutBtn" class="secondary" style="white-space:nowrap; display:none; margin-left:6px;">Salir</button>
-      </div>
-
+      <div class="banner-controls" style="position:relative;">
       <div style="position:relative;">
         <button id="backupBtn" class="icon-btn" aria-haspopup="true" aria-expanded="false" title="Respaldo">Respaldo ▾</button>
 
@@ -54,8 +45,6 @@
         <button id="clearSearchBtn" class="trash-btn" title="Borrar búsqueda" aria-label="Borrar búsqueda">✖</button>
       </div>
     </div>
-
-
 
     <!-- Options bar: shows contextual options depending on active button (currently empty) -->
     <div class="options-bar" role="toolbar" aria-label="Barra de opciones"></div>
@@ -250,9 +239,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Google Identity Services -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <script type="module" src="app.js"></script>
 </body>
