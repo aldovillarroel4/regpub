@@ -28,6 +28,25 @@ const registroBtn = $('#registroBtn');
 const loadBtn = $('#loadBtn'); // modal "Cargar" button
 
 let people = load();
+
+//
+// Last-loaded backup indicator helpers (persisted)
+//
+function setLastLoadedBackupName(name){
+  try{ localStorage.setItem('last_loaded_backup_v1', name || ''); }catch(e){}
+  const el = document.getElementById('lastLoadedBackup');
+  if(el) el.textContent = name || '—';
+}
+function restoreLastLoadedBackupIndicator(){
+  try{
+    const v = localStorage.getItem('last_loaded_backup_v1');
+    if(v){
+      const el = document.getElementById('lastLoadedBackup');
+      if(el) el.textContent = v || '—';
+    }
+  }catch(e){}
+}
+
 let activityMode = false; // false = normal registry, true = activity view
 // track currently selected person's id so options bar can react reliably
 let selectedId = null;
@@ -2596,11 +2615,23 @@ exportBtn.addEventListener('click', (ev) => {
 });
 
 /* Import registry from a .json file (replaces current registry)
-   New behavior: show a dropdown panel below the Import button listing the latest 20 backups in DRIVE_FOLDER_ID.
+   New behavior: when invoked from the "Manual" dropdown (backupMenu open) this Import option will open
+   the local file picker; otherwise it shows a dropdown panel listing the latest 20 backups in DRIVE_FOLDER_ID.
    If no Google session, show message "Debe iniciar sesión". Selecting an item downloads and restores it.
 */
 importBtn.addEventListener('click', async (ev) => {
   ev.stopPropagation();
+
+  // If the backupMenu (Manual dropdown) is currently open, treat this Import click as "local file import"
+  // and trigger the hidden file input to allow loading from a local .json file.
+  if (backupMenu && !backupMenu.classList.contains('hidden')) {
+    // Hide the manual dropdown to give feedback, then open file picker.
+    backupMenu.classList.add('hidden');
+    if (backupBtn) backupBtn.setAttribute('aria-expanded', 'false');
+    importFile.click();
+    return;
+  }
+
   // hide other backup dropdown if open
   if (backupMenu && !backupMenu.classList.contains('hidden')) {
     backupMenu.classList.add('hidden');
@@ -2739,6 +2770,8 @@ importBtn.addEventListener('click', async (ev) => {
             // attempt restore
             restoreAppState(state);
             alert('Respaldo cargado correctamente.');
+            // update the indicator with the name of the loaded remote file
+            try{ setLastLoadedBackupName(f.name); }catch(e){}
             panel.remove();
           } catch (err) {
             console.error('Error descargando respaldo', err);
@@ -2777,6 +2810,8 @@ importFile.addEventListener('change', (e) => {
       save();
       render(searchInput.value);
       alert('Importación completada.');
+      // update indicator with the local filename if available
+      try{ setLastLoadedBackupName(f.name); }catch(e){}
     }catch(err){
       alert('Error al importar: ' + (err && err.message ? err.message : err));
     } finally {
@@ -4518,6 +4553,9 @@ window.onload = function() {
     console.error('Error restaurando usuario de Google desde localStorage', err);
   }
 
+  // restore last-loaded backup indicator
+  try { restoreLastLoadedBackupIndicator(); } catch(e){}
+
   // If a persisted Google user exists, attempt to request a Drive access token silently (prompt: '')
   // so Drive-backed actions remain available after a page reload when consent was previously granted.
   try {
@@ -4652,6 +4690,8 @@ function saveBackupToDrive() {
         return;
       }
       alert("Respaldo guardado correctamente en Google Drive.");
+      // update last-loaded indicator with the new Drive filename
+      try{ setLastLoadedBackupName(fileName); }catch(e){}
     } catch (err) {
       console.error("Error durante saveBackupToDrive:", err);
       alert("Error al guardar respaldo en Google Drive (ver consola).");
@@ -4662,7 +4702,7 @@ function saveBackupToDrive() {
 /* Busca el archivo más reciente con el patrón en la carpeta y devuelve su fileId */
 async function findLatestBackupFileId() {
   try {
-    const query = `'${DRIVE_FOLDER_ID}' in parents and name contains 'RESPALDO-REGPUB.json' and trashed = false`;
+    const query = `'${DRIVE_FOLDER_ID}' in parents and name contains 'RESPALDO-REGPUB' and trashed = false`;
     const url = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(query) + "&orderBy=createdTime desc&pageSize=1&fields=files(id,name,createdTime)";
     const response = await fetch(url, { headers: { Authorization: "Bearer " + driveAccessToken } });
     if (!response.ok) {
@@ -4671,7 +4711,8 @@ async function findLatestBackupFileId() {
     }
     const data = await response.json();
     if (!data.files || data.files.length === 0) return null;
-    return data.files[0].id;
+    // return the full file object (id + name + createdTime)
+    return data.files[0];
   } catch (err) {
     console.error("findLatestBackupFileId error", err);
     return null;
@@ -4686,12 +4727,12 @@ function loadLatestBackupFromDrive() {
   }
   ensureDriveAccessToken(async () => {
     try {
-      const fileId = await findLatestBackupFileId();
-      if (!fileId) {
+      const fileObj = await findLatestBackupFileId();
+      if (!fileObj) {
         alert("No se encontró ningún respaldo en Google Drive.");
         return;
       }
-      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileObj.id}?alt=media`;
       const response = await fetch(downloadUrl, { headers: { Authorization: "Bearer " + driveAccessToken } });
       if (!response.ok) {
         console.error("Error al descargar respaldo desde Drive", await response.text());
@@ -4700,6 +4741,8 @@ function loadLatestBackupFromDrive() {
       }
       const state = await response.json();
       restoreAppState(state);
+      // update indicator with remote filename
+      try{ setLastLoadedBackupName(fileObj.name); }catch(e){}
       alert("Respaldo cargado correctamente desde Google Drive.");
     } catch (err) {
       console.error("loadLatestBackupFromDrive error", err);

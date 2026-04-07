@@ -19,7 +19,7 @@
   <div id="app">
     <div class="banner" role="banner">
       <div class="banner-title">REGISTRO DE PUBLICADORES - CONGREGACIÓN OESTE</div>
-      <div class="banner-controls" style="position:relative; display:flex; align-items:center; gap:12px;">
+      <div class="banner-controls" style="position:relative; display:flex; align-items:center; gap:12px; flex-direction:column; align-items:flex-end;">
         <!-- moved Google sign-in controls to sit left of the Respaldo button -->
         <div id="googleSignInSection" style="display:flex; align-items:center; gap:8px;">
           <div id="googleSignInButton"></div>
@@ -27,19 +27,24 @@
           <button id="guardarRespaldoBtn" class="secondary" style="margin-left:8px;">Guardar</button>
           <button id="cargarRespaldoBtn" class="secondary">Cargar</button>
           <button id="logoutGoogleBtn" class="secondary" title="Cerrar sesión de Google" style="margin-left:8px;">Salir</button>
-        </div>
 
-        <div style="position:relative;">
-          <button id="backupBtn" class="secondary" aria-haspopup="true" aria-expanded="false" title="Manual">Manual ▾</button>
+          <!-- Manual button (moved here so it sits immediately to the right of "Salir") -->
+          <div style="position:relative;">
+            <button id="backupBtn" class="secondary" aria-haspopup="true" aria-expanded="false" title="Manual" style="margin-left:8px;">Manual ▾</button>
 
-          <!-- simple dropdown menu for backup actions -->
-          <div id="backupMenu" class="hidden" role="menu" aria-label="Manual" style="position:absolute; right:0; top:calc(100% + 8px); background:#fff; border:1px solid #e6e9ee; border-radius:8px; box-shadow:0 8px 24px rgba(10,12,15,0.12); padding:8px; z-index:1000; min-width:160px;">
-            <button id="exportBtn" title="Exportar registro" class="icon-btn" style="display:block; width:100%; text-align:left; padding:8px 10px;">Exportar</button>
-            <button id="importBtn" title="Importar registro" class="icon-btn" style="display:block; width:100%; text-align:left; padding:8px 10px;">Importar</button>
+            <!-- simple dropdown menu for backup actions -->
+            <div id="backupMenu" class="hidden" role="menu" aria-label="Manual" style="position:absolute; right:0; top:calc(100% + 8px); background:#fff; border:1px solid #e6e9ee; border-radius:8px; box-shadow:0 8px 24px rgba(10,12,15,0.12); padding:8px; z-index:1000; min-width:160px;">
+              <button id="exportBtn" title="Exportar registro" class="icon-btn" style="display:block; width:100%; text-align:left; padding:8px 10px;">Exportar</button>
+              <button id="importBtn" title="Importar registro" class="icon-btn" style="display:block; width:100%; text-align:left; padding:8px 10px;">Importar</button>
+            </div>
           </div>
+          <input id="importFile" type="file" accept=".json" class="hidden" />
+          <input id="csvFile" type="file" accept=".csv,text/csv" class="hidden" />
         </div>
-        <input id="importFile" type="file" accept=".json" class="hidden" />
-        <input id="csvFile" type="file" accept=".csv,text/csv" class="hidden" />
+        <!-- Indicator showing which backup is currently loaded/visible in the system -->
+        <div id="lastLoadedIndicator" style="width:100%; margin-top:8px; font-size:13px; color:var(--muted); text-align:right;">
+          Último respaldo: <strong id="lastLoadedBackup" style="color:var(--text); font-weight:700">—</strong>
+        </div>
       </div>
     </div>
     <div class="toolbar">
