@@ -2595,15 +2595,143 @@ exportBtn.addEventListener('click', (ev) => {
   }
 });
 
-/* Import registry from a .json file (replaces current registry) */
-importBtn.addEventListener('click', (ev) => {
-  // hide menu before opening file picker
-  if(backupMenu && !backupMenu.classList.contains('hidden')){
+/* Import registry from a .json file (replaces current registry)
+   New behavior: show a dropdown panel below the Import button listing the latest 20 backups in DRIVE_FOLDER_ID.
+   If no Google session, show message "Debe iniciar sesión". Selecting an item downloads and restores it.
+*/
+importBtn.addEventListener('click', async (ev) => {
+  ev.stopPropagation();
+  // hide other backup dropdown if open
+  if (backupMenu && !backupMenu.classList.contains('hidden')) {
     backupMenu.classList.add('hidden');
-    if(backupBtn) backupBtn.setAttribute('aria-expanded','false');
+    if (backupBtn) backupBtn.setAttribute('aria-expanded', 'false');
   }
-  importFile.click();
+
+  // remove any existing panel first
+  const existing = document.getElementById('importBackupsPanel');
+  if (existing) { existing.remove(); return; }
+
+  // build panel container
+  const panel = document.createElement('div');
+  panel.id = 'importBackupsPanel';
+  panel.className = 'filter-panel';
+  panel.style.position = 'absolute';
+  panel.style.zIndex = 9999;
+  panel.style.minWidth = '280px';
+  panel.style.maxWidth = '520px';
+  panel.style.padding = '8px';
+  panel.style.boxSizing = 'border-box';
+
+  // position below the importBtn
+  document.body.appendChild(panel);
+  const rect = importBtn.getBoundingClientRect();
+  panel.style.left = (rect.left + window.scrollX) + 'px';
+  panel.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+
+  // header
+  const title = document.createElement('div');
+  title.className = 'filter-panel-title';
+  title.textContent = 'Respaldos recientes';
+  panel.appendChild(title);
+
+  // content area
+  const content = document.createElement('div');
+  content.style.display = 'flex';
+  content.style.flexDirection = 'column';
+  content.style.gap = '6px';
+  content.style.maxHeight = '320px';
+  content.style.overflow = 'auto';
+  panel.appendChild(content);
+
+  // footer actions
+  const actions = document.createElement('div');
+  actions.className = 'filter-panel-actions';
+  actions.style.marginTop = '6px';
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'secondary';
+  closeBtn.textContent = 'Cerrar';
+  closeBtn.addEventListener('click', () => panel.remove());
+  actions.appendChild(closeBtn);
+  panel.appendChild(actions);
+
+  // if not signed in, show message
+  if (!window.currentGoogleUser) {
+    const msg = document.createElement('div');
+    msg.className = 'filter-panel-empty';
+    msg.textContent = 'Debe iniciar sesión';
+    content.appendChild(msg);
+    return;
+  }
+
+  // show loading indicator
+  const loading = document.createElement('div');
+  loading.className = 'filter-panel-empty';
+  loading.textContent = 'Cargando...';
+  content.appendChild(loading);
+
+  // ensure drive access token available (but do not force new account selection if user already signed-in)
+  ensureDriveAccessToken(async () => {
+    try {
+      // query Drive for latest 20 files in folder matching the backup pattern
+      const q = `'${DRIVE_FOLDER_ID}' in parents and name contains 'RESPALDO-REGPUB' and trashed = false`;
+      const url = 'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent(q) + '&orderBy=createdTime desc&pageSize=20&fields=files(id,name,createdTime)';
+      const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + driveAccessToken }});
+      if (!resp.ok) {
+        throw new Error('Error al listar archivos: ' + resp.statusText);
+      }
+      const data = await resp.json();
+      content.innerHTML = '';
+      if (!data.files || data.files.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'filter-panel-empty';
+        empty.textContent = 'No se encontraron respaldos.';
+        content.appendChild(empty);
+        return;
+      }
+      // build list items
+      data.files.forEach(f => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'filter-panel-item';
+        const date = new Date(f.createdTime);
+        const fmt = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')} ${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
+        row.textContent = `${f.name} — ${fmt}`;
+        row.style.justifyContent = 'space-between';
+        row.addEventListener('click', async (ev2) => {
+          ev2.stopPropagation();
+          if(!confirm('Cargar este respaldo reemplazará el registro actual. ¿Continuar?')) return;
+          // download file content
+          try {
+            const dl = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id) + '?alt=media', { headers: { Authorization: 'Bearer ' + driveAccessToken }});
+            if(!dl.ok) {
+              alert('Error al descargar respaldo.');
+              return;
+            }
+            const state = await dl.json();
+            // attempt restore
+            restoreAppState(state);
+            alert('Respaldo cargado correctamente.');
+            panel.remove();
+          } catch (err) {
+            console.error('Error descargando respaldo', err);
+            alert('Error al descargar o procesar el respaldo (ver consola).');
+          }
+        });
+        content.appendChild(row);
+      });
+    } catch (err) {
+      console.error(err);
+      content.innerHTML = '';
+      const errEl = document.createElement('div');
+      errEl.className = 'filter-panel-empty';
+      errEl.textContent = 'Error al listar respaldos';
+      content.appendChild(errEl);
+    }
+  });
 });
+
+// keep existing file-input import behavior (manual local import)
 importFile.addEventListener('change', (e) => {
   const f = e.target.files && e.target.files[0];
   if(!f) return;
@@ -4368,7 +4496,7 @@ window.onload = function() {
   const cargarBtn = document.getElementById("cargarRespaldoBtn");
   const logoutBtn = document.getElementById("logoutGoogleBtn");
   if (guardarBtn) guardarBtn.addEventListener("click", saveBackupToDrive);
-  if (cargarBtn) cargarBtn.addEventListener("click", showBackupsDropdown);
+  if (cargarBtn) cargarBtn.addEventListener("click", loadLatestBackupFromDrive);
 
   // Cierra la sesión de Google: limpia almacenamiento local, revoca token Drive si existe,
   // deshabilita autoSelect y restaura el botón de inicio de sesión.
@@ -4433,236 +4561,6 @@ function ensureDriveAccessToken(callback) {
       callback();
     }
   }, 500);
-}
-
-/* List backup files (up to `pageSize`) in the configured DRIVE_FOLDER_ID matching our backup pattern */
-async function listBackupFiles(pageSize = 20) {
-  try {
-    const q = `'${DRIVE_FOLDER_ID}' in parents and name contains 'RESPALDO-REGPUB.json' and trashed = false`;
-    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&orderBy=createdTime desc&pageSize=${pageSize}&fields=files(id,name,createdTime,md5Checksum)`;
-    const resp = await fetch(url, { headers: { Authorization: "Bearer " + driveAccessToken } });
-    if (!resp.ok) {
-      console.error("Error listando archivos en Drive", await resp.text());
-      return [];
-    }
-    const data = await resp.json();
-    return data.files || [];
-  } catch (err) {
-    console.error("listBackupFiles error", err);
-    return [];
-  }
-}
-
-/* Show a dropdown panel under the "Cargar" button listing the latest backups (or a message if not signed in) */
-function showBackupsDropdown(e) {
-  e && e.stopPropagation();
-
-  // remove any existing panel
-  const existing = document.getElementById('backupsPanel');
-  if (existing) {
-    existing.remove();
-    return;
-  }
-
-  const btn = document.getElementById('cargarRespaldoBtn');
-  if (!btn) return;
-
-  // build panel
-  const panel = document.createElement('div');
-  panel.id = 'backupsPanel';
-  panel.style.position = 'absolute';
-  panel.style.zIndex = '10000';
-  panel.style.minWidth = '280px';
-  panel.style.maxWidth = '420px';
-  panel.style.maxHeight = '360px';
-  panel.style.overflow = 'auto';
-  panel.style.background = '#fff';
-  panel.style.border = '1px solid var(--subtle)';
-  panel.style.borderRadius = '8px';
-  panel.style.boxShadow = '0 8px 24px rgba(10,12,15,0.12)';
-  panel.style.padding = '8px';
-  panel.style.fontSize = '13px';
-
-  // position under button
-  const rect = btn.getBoundingClientRect();
-  document.body.appendChild(panel);
-  panel.style.left = (rect.left + window.scrollX) + 'px';
-  panel.style.top = (rect.bottom + window.scrollY + 8) + 'px';
-
-  // header
-  const header = document.createElement('div');
-  header.style.display = 'flex';
-  header.style.alignItems = 'center';
-  header.style.justifyContent = 'space-between';
-  header.style.marginBottom = '8px';
-  const title = document.createElement('div');
-  title.textContent = 'Respaldos recientes';
-  title.style.fontWeight = '700';
-  title.style.color = 'var(--muted)';
-  header.appendChild(title);
-  const closeBtn = document.createElement('button');
-  closeBtn.className = 'icon-btn';
-  closeBtn.innerHTML = '&times;';
-  closeBtn.title = 'Cerrar';
-  closeBtn.addEventListener('click', () => panel.remove());
-  header.appendChild(closeBtn);
-  panel.appendChild(header);
-
-  // container for content
-  const content = document.createElement('div');
-  content.style.display = 'flex';
-  content.style.flexDirection = 'column';
-  content.style.gap = '6px';
-  panel.appendChild(content);
-
-  // if no google session, show message
-  if (!window.currentGoogleUser) {
-    const msg = document.createElement('div');
-    msg.textContent = 'Debe iniciar sesión';
-    msg.style.color = 'var(--muted)';
-    msg.style.padding = '18px';
-    msg.style.textAlign = 'center';
-    content.appendChild(msg);
-
-    // clicking the panel will not auto-login; provide an action to show sign-in button location
-    const hint = document.createElement('div');
-    hint.style.fontSize = '12px';
-    hint.style.color = 'var(--muted)';
-    hint.style.textAlign = 'center';
-    hint.textContent = 'Inicia sesión con Google para ver respaldos.';
-    content.appendChild(hint);
-
-    // close on outside click
-    setTimeout(() => {
-      const onDocClick = (ev) => {
-        if (!panel.contains(ev.target) && ev.target !== btn) {
-          panel.remove();
-          document.removeEventListener('click', onDocClick);
-        }
-      };
-      document.addEventListener('click', onDocClick);
-    }, 0);
-    return;
-  }
-
-  // show a loading indicator while fetching list
-  const loading = document.createElement('div');
-  loading.textContent = 'Cargando...';
-  loading.style.color = 'var(--muted)';
-  loading.style.padding = '10px';
-  loading.style.textAlign = 'center';
-  content.appendChild(loading);
-
-  // ensure drive token then fetch list
-  ensureDriveAccessToken(async () => {
-    try {
-      const files = await listBackupFiles(20);
-      content.removeChild(loading);
-
-      if (!files || files.length === 0) {
-        const empty = document.createElement('div');
-        empty.textContent = 'No se encontraron respaldos en Google Drive.';
-        empty.style.color = 'var(--muted)';
-        empty.style.padding = '12px';
-        empty.style.textAlign = 'center';
-        content.appendChild(empty);
-      } else {
-        // render each file as a selectable row
-        files.forEach(f => {
-          const row = document.createElement('div');
-          row.style.display = 'flex';
-          row.style.alignItems = 'center';
-          row.style.justifyContent = 'space-between';
-          row.style.padding = '8px';
-          row.style.borderRadius = '6px';
-          row.style.cursor = 'pointer';
-          row.style.border = '1px solid transparent';
-          row.addEventListener('mouseenter', () => row.style.borderColor = 'rgba(11,102,255,0.06)');
-          row.addEventListener('mouseleave', () => row.style.borderColor = 'transparent');
-
-          const left = document.createElement('div');
-          left.style.display = 'flex';
-          left.style.flexDirection = 'column';
-          left.style.gap = '4px';
-          const name = document.createElement('div');
-          name.textContent = f.name || 'Sin nombre';
-          name.style.fontWeight = '600';
-          name.style.fontSize = '13px';
-          const date = document.createElement('div');
-          date.style.fontSize = '12px';
-          date.style.color = 'var(--muted)';
-          date.textContent = f.createdTime ? (new Date(f.createdTime)).toLocaleString() : '';
-          left.appendChild(name);
-          left.appendChild(date);
-
-          const action = document.createElement('div');
-          action.style.display = 'flex';
-          action.style.gap = '8px';
-          const loadBtn = document.createElement('button');
-          loadBtn.className = 'secondary';
-          loadBtn.textContent = 'Cargar';
-          loadBtn.addEventListener('click', async (ev) => {
-            ev.stopPropagation();
-            try {
-              // fetch file content then restore
-              const downloadUrl = `https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`;
-              const resp = await fetch(downloadUrl, { headers: { Authorization: "Bearer " + driveAccessToken } });
-              if (!resp.ok) {
-                console.error('Error al descargar el respaldo', await resp.text());
-                alert('Error al descargar el respaldo desde Google Drive.');
-                return;
-              }
-              const state = await resp.json();
-              restoreAppState(state);
-              panel.remove();
-              alert('Respaldo cargado correctamente desde Google Drive.');
-            } catch (err) {
-              console.error('Error al cargar respaldo seleccionado', err);
-              alert('Error al cargar respaldo (ver consola).');
-            }
-          });
-          const infoBtn = document.createElement('button');
-          infoBtn.className = 'icon-btn';
-          infoBtn.innerHTML = '&#9432;';
-          infoBtn.title = 'Detalles';
-          infoBtn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            alert(`${f.name}\nCreado: ${f.createdTime || '—'}`);
-          });
-
-          action.appendChild(loadBtn);
-          action.appendChild(infoBtn);
-
-          row.appendChild(left);
-          row.appendChild(action);
-
-          // clicking row also triggers load
-          row.addEventListener('click', () => loadBtn.click());
-
-          content.appendChild(row);
-        });
-      }
-    } catch (err) {
-      content.removeChild(loading);
-      const errDiv = document.createElement('div');
-      errDiv.textContent = 'Error al listar respaldos.';
-      errDiv.style.color = 'var(--muted)';
-      errDiv.style.padding = '10px';
-      content.appendChild(errDiv);
-      console.error(err);
-    }
-
-    // close panel on outside click
-    setTimeout(() => {
-      const onDocClick = (ev) => {
-        if (!panel.contains(ev.target) && ev.target !== btn) {
-          panel.remove();
-          document.removeEventListener('click', onDocClick);
-        }
-      };
-      document.addEventListener('click', onDocClick);
-    }, 0);
-  });
 }
 
 /* Genera nombre de archivo según formato solicitado */
