@@ -2657,7 +2657,32 @@ importBtn.addEventListener('click', async (ev) => {
   actions.appendChild(closeBtn);
   panel.appendChild(actions);
 
-  // if not signed in, show message
+  // If no current Google user in memory, try to restore from localStorage so a page reload
+  // does not force the user to sign in again when using "Cargar".
+  if (!window.currentGoogleUser) {
+    try {
+      const stored = localStorage.getItem('google_user_v1');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.email) {
+          // restore UI state (does not restore Drive token yet)
+          onGoogleUserLoggedIn(parsed);
+          // attempt to silently obtain a Drive access token if the token client is available
+          if (driveTokenClient) {
+            try {
+              driveTokenClient.requestAccessToken({ prompt: '' });
+            } catch (err) {
+              // silent token request may fail; actions will prompt when needed
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error restoring persisted Google user for import panel', e);
+    }
+  }
+
+  // if still not signed in in-memory, show message
   if (!window.currentGoogleUser) {
     const msg = document.createElement('div');
     msg.className = 'filter-panel-empty';
