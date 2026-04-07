@@ -4262,7 +4262,7 @@ function onGoogleUserLoggedIn(userData) {
   const btnContainer = document.getElementById("googleSignInButton");
   if (infoElement) {
     infoElement.style.display = "block";
-    infoElement.textContent = `Sesión: ${userData.name}`;
+    infoElement.textContent = `Sesión iniciada como ${userData.name} (${userData.email})`;
   }
   if (btnContainer) {
     btnContainer.style.display = "none";
@@ -4363,11 +4363,56 @@ window.onload = function() {
     console.error("Error inicializando drive token client:", err);
   }
 
-  // Asignar handlers a botones de guardar/cargar respaldo
+  // Asignar handlers a botones de guardar/cargar respaldo (y botón Salir)
   const guardarBtn = document.getElementById("guardarRespaldoBtn");
   const cargarBtn = document.getElementById("cargarRespaldoBtn");
+  const salirBtn = document.getElementById("salirBtn");
   if (guardarBtn) guardarBtn.addEventListener("click", saveBackupToDrive);
   if (cargarBtn) cargarBtn.addEventListener("click", loadLatestBackupFromDrive);
+
+  // Sign-out handler: revoke Drive access token (if any), clear stored Google user and update UI
+  if (salirBtn) {
+    salirBtn.addEventListener("click", async () => {
+      try {
+        // Revoke drive access token if present
+        if (driveAccessToken) {
+          try {
+            // Revoke via Google's token revocation endpoint
+            await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(driveAccessToken)}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" }
+            });
+          } catch (e) {
+            console.warn("No se pudo revocar el access token de Drive:", e);
+          }
+        }
+
+        // Clear client-side state
+        driveAccessToken = null;
+        if (driveTokenClient && driveTokenClient.callback) {
+          // No direct sign-out API for token client: rely on revocation and clearing stored info
+        }
+
+        // Clear persisted google user
+        try { localStorage.removeItem('google_user_v1'); } catch (e) { /* ignore */ }
+        window.currentGoogleUser = null;
+
+        // Update UI: show sign-in button again, hide user info
+        const infoElement = document.getElementById("googleUserInfo");
+        const btnContainer = document.getElementById("googleSignInButton");
+        if (infoElement) { infoElement.style.display = "none"; infoElement.textContent = ""; }
+        if (btnContainer) { btnContainer.style.display = "block"; }
+
+        // Disable automatic account selection if available
+        try { if (window.google && google.accounts && google.accounts.id && google.accounts.id.disableAutoSelect) google.accounts.id.disableAutoSelect(); } catch (err) { /* ignore */ }
+
+        alert("Sesión de Google cerrada.");
+      } catch (err) {
+        console.error("Error cerrando sesión de Google:", err);
+        alert("Error al cerrar la sesión (ver consola).");
+      }
+    });
+  }
 };
 
 /* Asegura que exista un access token válido antes de usar Drive */
