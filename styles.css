@@ -497,6 +497,13 @@ body{
   color:var(--text);
 }
 
+/* Single-click visual highlight in Activity mode: does not set persistent selection state used by options bar */
+.grid tr.highlight td{
+  background: rgba(11,102,255,0.035);
+  transition: background-color .12s ease;
+  color:var(--text);
+}
+
 
 
 /* Resizer handle */

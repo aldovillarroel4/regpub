@@ -601,6 +601,11 @@ function render(filter=''){
           }
         }
 
+        // ensure DOM checkbox matches computed cur.aux immediately
+        try{
+          if(aux) aux.checked = !!cur.aux;
+        }catch(e){}
+
         p.activities[month] = cur;
         save();
       }
@@ -632,10 +637,26 @@ function render(filter=''){
       [hours, studies].forEach(el => {
         if(!el) return;
         el.addEventListener('input', () => {
+          // If editing the "hours" field and the person is NOT Precursor Regular, toggle the Aux checkbox immediately based on >1
+          try {
+            if(el === hours && aux){
+              const hnum = (hours.value === '' ? NaN : Number(hours.value));
+              if(String(p.designation || '').trim() !== 'Precursor Regular'){
+                aux.checked = (!isNaN(hnum) && hnum > 1);
+              } else {
+                // ensure Precursor Regular never has Aux checked
+                aux.checked = false;
+              }
+            }
+          } catch(err){ /* ignore live sync errors */ }
+
           clearTimeout(el._t);
           el._t = setTimeout(() => saveActivityFor(monthInput.value), 300);
         });
-        el.addEventListener('change', () => saveActivityFor(monthInput.value));
+        el.addEventListener('change', () => {
+          // on commit also persist and keep DOM in sync
+          saveActivityFor(monthInput.value);
+        });
         el.addEventListener('blur', () => saveActivityFor(monthInput.value));
       });
 
@@ -3775,7 +3796,35 @@ tbody.addEventListener('click', (e) => {
         return;
       }
 
-      // Manage selection for rows
+      // In Activity mode, single-click should only visually highlight the row (do NOT create the persistent 'selected' state).
+      if (activityMode) {
+        // ignore clicks that are on activity controls themselves (handled elsewhere)
+        if (
+          target.closest('.act-month') ||
+          target.closest('.act-aux') ||
+          target.closest('.act-hours') ||
+          target.closest('.act-studies') ||
+          target.closest('.act-comments')
+        ) {
+          return;
+        }
+        // Use a transient "highlight" class for single-click visual feedback.
+        // Keep the persistent 'selected' class reserved for double-click actions.
+        // Clear any other transient highlights, but preserve any existing persistent selection.
+        tbody.querySelectorAll('tr.highlight').forEach(r => r.classList.remove('highlight'));
+        const becameHighlighted = tr && !tr.classList.contains('highlight');
+        if (becameHighlighted && tr) {
+          tr.classList.add('highlight');
+        } else {
+          tr.classList.remove('highlight');
+        }
+        // Do not set selectedId here so updateOptionsBar will still show activity buttons.
+        // Still call updateOptionsBar to refresh contextual UI that does not depend on transient highlights.
+        updateOptionsBar();
+        return;
+      }
+
+      // Manage selection for rows (Registry mode)
       const prev = tbody.querySelector('tr.selected');
       if (prev && prev !== tr) prev.classList.remove('selected');
       const becameSelected = tr && !tr.classList.contains('selected');
@@ -3788,17 +3837,6 @@ tbody.addEventListener('click', (e) => {
       }
 
       updateOptionsBar();
-
-      if (activityMode && becameSelected) {
-        const id = tr.dataset.id;
-        const p = people.find(x => x.id === id);
-        if (p) {
-          const q = (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim();
-          searchInput.value = q;
-          render(searchInput.value);
-          updateOptionsBar();
-        }
-      }
     }
   }
 
@@ -3829,9 +3867,51 @@ tbody.addEventListener('dblclick', (e) => {
   if(pIndex === -1) return;
   const person = people[pIndex];
 
-  // In activity mode, keep existing behavior: double-click on cong-cell opens modal
+  // Activity mode: double-click now selects the row (or if double-click on cong-cell, opens modal per previous behavior after selecting)
   if(activityMode){
-    if(td.classList.contains('cong-cell')){
+    // Manage selection for rows (double-click required)
+    const prev = tbody.querySelector('tr.selected');
+    if (prev && prev !== tr) prev.classList.remove('selected');
+    const becameSelected = tr && !tr.classList.contains('selected');
+    tbody.querySelectorAll('tr.selected').forEach(r => r.classList.remove('selected'));
+    if (becameSelected && tr) {
+      tr.classList.add('selected');
+      selectedId = tr.dataset.id || null;
+    } else {
+      selectedId = null;
+    }
+
+    updateOptionsBar();
+
+    if (becameSelected) {
+      const p = person;
+      if (p) {
+        const q = (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim();
+        searchInput.value = q;
+
+        // Determine service-year based on the person's last selected month (or current month).
+        // Service year N means Sept (N-1) through Aug (N).
+        const lastMonth = (p.activities && p.activities._lastMonth) ? p.activities._lastMonth : new Date().toISOString().slice(0,7);
+        const parts = String(lastMonth).split('-');
+        let yearNum = Number(parts[0]) || new Date().getFullYear();
+        const monthNum = Number(parts[1]) || (new Date().getMonth() + 1);
+
+        // If month is Sept (9) or later, the service year is the calendar year + 1.
+        if (monthNum >= 9) yearNum = yearNum + 1;
+
+        // Set the activity range to cover the full service year (Sept previous year -> Aug this year)
+        activityRangeFrom = `${String(yearNum - 1).padStart(4,'0')}-09`;
+        activityRangeTo = `${String(yearNum).padStart(4,'0')}-08`;
+        activityRangeActive = true;
+
+        // Re-render so the activity rows expand for the full service year and update UI.
+        render(searchInput.value);
+        updateOptionsBar();
+      }
+    }
+
+    // If double-click specifically on cong-cell, also open the profile popup (preserve previous behavior)
+    if (td.classList.contains('cong-cell')) {
       openModal('edit', person);
     }
     return;
