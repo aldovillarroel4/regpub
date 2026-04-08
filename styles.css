@@ -274,6 +274,25 @@ body{
   width:100%;
   border:1px solid var(--subtle);
 }
+
+/* Asistencia panel: make Fecha label and Total Día bold, and ensure Total Día numbers match table font-size */
+.asistencia-date-display {
+  font-weight: 700;
+  font-size: 14px; /* keep same size as other table cells */
+  line-height: 1.2;
+}
+
+.asistencia-total-dia {
+  font-weight: 700;
+  font-size: 14px; /* match other numeric cells */
+  min-width: 60px;
+  padding: 6px;
+  border: 1px solid var(--subtle);
+  border-radius: 6px;
+  background: #fafafa;
+  text-align: center;
+  box-sizing: border-box;
+}
 .grid{
   width:100%;
   border-collapse:collapse;

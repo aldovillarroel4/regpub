@@ -792,6 +792,22 @@ function normalizeDate(input){
   return '';
 }
 
+/* Parse a YYYY-MM-DD date string into a local Date object (avoids UTC shift when using new Date('YYYY-MM-DD')).
+   Falls back to Date parse if pattern doesn't match. Returns null if unparseable. */
+function parseLocalDate(dateStr){
+  if(!dateStr) return null;
+  const s = String(dateStr).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(m){
+    const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3]);
+    const dt = new Date(y, mo, d);
+    if(!isNaN(dt)) return dt;
+    return null;
+  }
+  const parsed = new Date(s);
+  return isNaN(parsed) ? null : parsed;
+}
+
 /* Events */
 addBtn.addEventListener('click', () => openModal('add'));
 closeModal.addEventListener('click', close);
@@ -1550,6 +1566,50 @@ function updateOptionsBar(){
           } catch (err) {
             // ignore if DOM shape changes
           }
+
+          // Compute Promedio F.S. using the same per-month asistencia storage used by the Asistencia panel
+          try {
+            // load persisted asistencia rows for the selected month
+            const valuesKey = sel ? `asistencia_values_${sel}` : null;
+            let savedRows = null;
+            try { savedRows = valuesKey ? JSON.parse(localStorage.getItem(valuesKey) || '[]') : null; } catch(e){ savedRows = null; }
+
+            let weekendSum = 0;
+            let countWeekendWithRegistro = 0;
+
+            if (Array.isArray(savedRows)) {
+              savedRows.forEach(row => {
+                if(!row) return;
+                const dateStr = row.date || '';
+                const values = row.values || {};
+                if(!dateStr) return;
+                const d = parseLocalDate(dateStr);
+                if(!d || isNaN(d.getTime())) return;
+                const day = d.getDay(); // 0=Sun,6=Sat
+                if(day !== 0 && day !== 6) return; // only weekend rows
+                // compute total for the row: sum numeric values of columns 1..(n-1)
+                // stored indices match table columns; sum existing numeric entries
+                let sum = 0;
+                const keys = Object.keys(values);
+                keys.forEach(k => {
+                  const v = values[k];
+                  const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
+                  if(!isNaN(n)) sum += n;
+                });
+                if(sum > 0){
+                  weekendSum += sum;
+                  countWeekendWithRegistro++;
+                }
+              });
+            }
+
+            let avgFS = 0;
+            if(countWeekendWithRegistro > 0) avgFS = weekendSum / countWeekendWithRegistro;
+            const avgFSText = Number.isFinite(avgFS) ? (Math.abs(avgFS - Math.round(avgFS)) < 1e-9 ? String(Math.round(avgFS)) : avgFS.toFixed(2)) : '0';
+            try { promValueBox.textContent = avgFSText; } catch(e) { /* ignore if element missing */ }
+          } catch (err) {
+            // ignore any storage/parse errors
+          }
         }
 
         // persist selection when changed and trigger refresh
@@ -1568,6 +1628,689 @@ function updateOptionsBar(){
       // Only show the button when no person is selected (this function rebuilds the bar each time,
       // so the button will not be rendered when a person is selected because anySelected will be true)
       wrap.appendChild(reportBtn);
+
+      // Asistencia button: placed immediately to the right of Reporte JW
+      const asistenciaBtn = document.createElement('button');
+      asistenciaBtn.className = 'secondary';
+      asistenciaBtn.textContent = 'Asistencia';
+      asistenciaBtn.title = 'Generar reporte de asistencia';
+      asistenciaBtn.style.marginLeft = '8px';
+      asistenciaBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        // toggle panel
+        const existingA = document.getElementById('asistenciaPanel');
+        if (existingA) { existingA.remove(); return; }
+
+        const panel = document.createElement('div');
+        panel.id = 'asistenciaPanel';
+        panel.style.position = 'fixed';
+        panel.style.left = '0';
+        panel.style.top = '0';
+        panel.style.right = '0';
+        panel.style.bottom = '0';
+        panel.style.display = 'flex';
+        panel.style.alignItems = 'center';
+        panel.style.justifyContent = 'center';
+        panel.style.background = 'rgba(15,23,42,0.3)';
+        panel.style.zIndex = '160';
+        panel.style.padding = '18px';
+
+        const card = document.createElement('div');
+        card.style.width = 'min(900px, 96vw)';
+        card.style.maxHeight = '90vh';
+        card.style.background = 'var(--card)';
+        card.style.border = '1px solid var(--subtle)';
+        card.style.borderRadius = '10px';
+        card.style.boxShadow = '0 18px 48px rgba(16,24,40,0.18)';
+        card.style.overflow = 'hidden';
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+
+        // header: title left, month picker right
+        const hdr = document.createElement('div');
+        hdr.style.display = 'flex';
+        hdr.style.alignItems = 'center';
+        hdr.style.justifyContent = 'space-between';
+        hdr.style.padding = '12px 14px';
+        hdr.style.borderBottom = '1px solid var(--subtle)';
+
+        const titleWrap = document.createElement('div');
+        const title = document.createElement('div');
+        title.textContent = 'Asistencia Reuniones';
+        title.style.fontWeight = '700';
+        title.style.fontSize = '16px';
+        titleWrap.appendChild(title);
+
+        const rightWrap = document.createElement('div');
+        rightWrap.style.display = 'flex';
+        rightWrap.style.alignItems = 'center';
+        rightWrap.style.gap = '8px';
+
+        const monthLabel = document.createElement('div');
+        monthLabel.textContent = 'Mes/Año:';
+        monthLabel.style.fontSize = '13px';
+        monthLabel.style.color = 'var(--muted)';
+        monthLabel.style.fontWeight = '700';
+
+        const monthInput = document.createElement('input');
+        monthInput.type = 'month';
+        // restore previously selected asistencia month if present, otherwise default to current month
+        try {
+          const savedAsistencia = localStorage.getItem('asistencia_last_month_v1');
+          monthInput.value = (savedAsistencia && /^\d{4}-\d{2}$/.test(savedAsistencia)) ? savedAsistencia : new Date().toISOString().slice(0,7);
+        } catch (err) {
+          monthInput.value = new Date().toISOString().slice(0,7);
+        }
+        monthInput.style.padding = '6px 8px';
+        monthInput.style.borderRadius = '8px';
+        monthInput.style.border = '1px solid var(--subtle)';
+        monthInput.style.background = '#fff';
+        monthInput.style.color = 'var(--text)';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'icon-btn';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.title = 'Cerrar';
+        closeBtn.style.fontSize = '18px';
+        closeBtn.addEventListener('click', () => panel.remove());
+
+        rightWrap.appendChild(monthLabel);
+        rightWrap.appendChild(monthInput);
+        rightWrap.appendChild(closeBtn);
+
+        hdr.appendChild(titleWrap);
+        hdr.appendChild(rightWrap);
+
+        // body: table with specified columns and 10 rows
+        const body = document.createElement('div');
+        body.style.padding = '12px';
+        body.style.overflow = 'auto';
+        body.style.flex = '1 1 auto';
+
+        const table = document.createElement('table');
+        table.style.width = '100%';
+        table.style.borderCollapse = 'collapse';
+        table.style.tableLayout = 'fixed';
+        table.style.fontSize = '13px';
+
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        const cols = ['Fecha','G1','G2','G3','G4','G5','G6','G7','G8','Salón','Total Día'];
+        cols.forEach(c => {
+          const th = document.createElement('th');
+          th.textContent = c;
+          th.style.padding = '8px';
+          th.style.borderBottom = '1px solid var(--subtle)';
+          th.style.textAlign = 'center';
+          th.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,251,0.98))';
+          th.style.fontWeight = '700';
+          // make Fecha header wider so the column can display full dates without truncation
+          if (c === 'Fecha') {
+            th.style.width = '160px';
+            th.style.minWidth = '160px';
+          }
+          headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbodyAs = document.createElement('tbody');
+        // create 10 rows (persist all numeric and date cells per selected month)
+        for(let i=0;i<10;i++){
+          const tr = document.createElement('tr');
+          tr.style.borderBottom = '1px solid rgba(15,23,42,0.04)';
+
+          // load persisted values for this month (array of rows), key per month: asistencia_values_{YYYY-MM}
+          const valuesKey = (monthInput && monthInput.value) ? `asistencia_values_${monthInput.value}` : null;
+          let savedValues = null;
+          try {
+            if(valuesKey){
+              const raw = localStorage.getItem(valuesKey);
+              savedValues = raw ? JSON.parse(raw) : null;
+            }
+          } catch(e){
+            savedValues = null;
+          }
+          const rowSaved = (savedValues && Array.isArray(savedValues) && savedValues[i]) ? savedValues[i] : null;
+
+          cols.forEach((c, j) => {
+            const td = document.createElement('td');
+            td.style.padding = '8px';
+            td.style.textAlign = (j === 0 ? 'center' : 'right');
+            td.style.verticalAlign = 'middle';
+            td.style.whiteSpace = 'nowrap';
+
+            if(j === 0){
+              // Fecha cell: hidden date input + formatted display (preserve existing behavior)
+              const hiddenDate = document.createElement('input');
+              hiddenDate.type = 'date';
+              hiddenDate.style.display = 'none';
+
+              const [y,m] = monthInput.value.split('-');
+              const day = String(i+1).padStart(2,'0');
+
+              // prefer stored rowSaved.date (even if empty string), else default to month day
+              if(rowSaved && typeof rowSaved.date !== 'undefined') {
+                hiddenDate.value = rowSaved.date || '';
+              } else if (y && m) {
+                hiddenDate.value = `${y}-${m}-${day}`;
+              } else {
+                const now = new Date();
+                const ym = now.toISOString().slice(0,7);
+                hiddenDate.value = `${ym}-${day}`;
+              }
+
+              const displaySpan = document.createElement('div');
+              displaySpan.className = 'asistencia-date-display';
+              displaySpan.style.minWidth = '160px';
+              displaySpan.style.padding = '6px';
+              displaySpan.style.border = '1px solid var(--subtle)';
+              displaySpan.style.borderRadius = '6px';
+              displaySpan.style.textAlign = 'center';
+              displaySpan.style.background = '#fff';
+              displaySpan.style.cursor = 'pointer';
+              displaySpan.style.marginRight = '12px';
+
+              function formatDayLabel(val){
+                if(!val) return '';
+                try{
+                  const m = String(val || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                  let dt;
+                  if(m){
+                    const yy = Number(m[1]), mm = Number(m[2]) - 1, dd = Number(m[3]);
+                    dt = new Date(yy, mm, dd);
+                  } else dt = new Date(val);
+                  if(isNaN(dt)) return '';
+                  const dayName = dt.toLocaleDateString('es', { weekday: 'short' }).replace('.','');
+                  const dayNum = String(dt.getDate()).padStart(2,'0');
+                  return `${dayName} ${dayNum}`;
+                }catch(e){ return ''; }
+              }
+
+              displaySpan.textContent = formatDayLabel(hiddenDate.value) || '';
+
+              displaySpan.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                const picker = document.createElement('input');
+                picker.type = 'date';
+                picker.value = hiddenDate.value || '';
+                picker.style.position = 'relative';
+                picker.style.width = '160px';
+                picker.style.padding = '6px';
+                picker.style.border = '1px solid var(--subtle)';
+                picker.style.borderRadius = '6px';
+                td.replaceChild(picker, displaySpan);
+                picker.focus();
+                function finish(){
+                  const val = picker.value || '';
+                  hiddenDate.value = val;
+                  displaySpan.textContent = formatDayLabel(val) || '';
+                  // persist into per-month storage
+                  try {
+                    const key = (monthInput && monthInput.value) ? `asistencia_values_${monthInput.value}` : null;
+                    if(key){
+                      let arr = [];
+                      try{ arr = JSON.parse(localStorage.getItem(key) || '[]'); }catch(e){ arr = []; }
+                      arr[i] = arr[i] || {};
+                      arr[i].date = hiddenDate.value || '';
+                      localStorage.setItem(key, JSON.stringify(arr));
+                    }
+                  } catch(err){}
+                  if(picker.parentNode) picker.parentNode.replaceChild(displaySpan, picker);
+                }
+                picker.addEventListener('change', finish);
+                picker.addEventListener('blur', () => setTimeout(finish, 0));
+              });
+
+              hiddenDate.addEventListener('change', () => {
+                displaySpan.textContent = formatDayLabel(hiddenDate.value) || '';
+                try {
+                  const key = (monthInput && monthInput.value) ? `asistencia_values_${monthInput.value}` : null;
+                  if(key){
+                    let arr = [];
+                    try{ arr = JSON.parse(localStorage.getItem(key) || '[]'); }catch(e){ arr = []; }
+                    arr[i] = arr[i] || {};
+                    arr[i].date = hiddenDate.value || '';
+                    localStorage.setItem(key, JSON.stringify(arr));
+                  }
+                } catch(err){}
+              });
+
+              td.appendChild(hiddenDate);
+              td.appendChild(displaySpan);
+            } else {
+              // numeric cell (G1..G8, Salón, Total Día). load saved value if present
+              // If this is the "Total Día" column, render a non-editable computed value.
+              const totalColIndex = cols.length - 1; // last column is "Total Día"
+              if (j === totalColIndex) {
+                const totalSpan = document.createElement('div');
+                totalSpan.className = 'asistencia-total-dia';
+                totalSpan.style.minWidth = '60px';
+                totalSpan.style.padding = '6px';
+                totalSpan.style.border = '1px solid var(--subtle)';
+                totalSpan.style.borderRadius = '6px';
+                totalSpan.style.background = '#fafafa';
+                totalSpan.style.boxSizing = 'border-box';
+                totalSpan.style.textAlign = 'center';
+                totalSpan.textContent = '0';
+                // compute initial total from saved row values (sum of numeric G1..G8 + Salón)
+                try {
+                  if (rowSaved && rowSaved.values) {
+                    let sum = 0;
+                    // numeric columns are indexes 1..(totalColIndex-1)
+                    for (let k = 1; k < totalColIndex; k++) {
+                      const v = rowSaved.values[k];
+                      const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(v);
+                      if (!isNaN(n)) sum += n;
+                    }
+                    totalSpan.textContent = String(sum);
+                  }
+                } catch (err) { /* ignore */ }
+                td.appendChild(totalSpan);
+              } else {
+                // regular numeric input cell (G1..G8, Salón)
+                const inp = document.createElement('input');
+                inp.type = 'number';
+                inp.min = '0';
+                inp.step = '1';
+                inp.style.width = '100%';
+                inp.style.boxSizing = 'border-box';
+                inp.style.padding = '6px';
+                inp.style.border = '1px solid var(--subtle)';
+                inp.style.borderRadius = '6px';
+                if (cols[j] === 'G1') td.style.paddingLeft = '12px';
+                // center numeric inputs so numbers appear centered in their cells
+                inp.style.textAlign = 'center';
+
+                // determine saved value for this cell: saved object stores by column index for simplicity
+                let savedVal = '';
+                if(rowSaved && typeof rowSaved.values !== 'undefined' && rowSaved.values[j]) {
+                  savedVal = rowSaved.values[j];
+                }
+                // prefer savedVal (could be empty string) otherwise blank
+                if(typeof savedVal !== 'undefined' && savedVal !== null) inp.value = String(savedVal);
+                else inp.value = '';
+
+                // helper to update the Total Día cell for this row
+                function updateRowTotalDisplay() {
+                  try {
+                    const trRow = tr; // current row
+                    const totalCell = trRow.querySelector('.asistencia-total-dia');
+                    if(!totalCell) return;
+                    let sum = 0;
+                    // numeric columns are indexes 1..(totalColIndex-1)
+                    for (let k = 1; k < totalColIndex; k++) {
+                      const cell = trRow.children[k];
+                      if(!cell) continue;
+                      const inputEl = cell.querySelector('input[type="number"]');
+                      let v;
+                      if(inputEl) v = inputEl.value;
+                      else {
+                        // if no input (unexpected) try saved storage
+                        const key = (monthInput && monthInput.value) ? `asistencia_values_${monthInput.value}` : null;
+                        if(key){
+                          try{
+                            const arr = JSON.parse(localStorage.getItem(key) || '[]');
+                            const r = arr[i] || {};
+                            v = (r.values && typeof r.values[k] !== 'undefined') ? r.values[k] : '';
+                          }catch(e){ v = ''; }
+                        } else v = '';
+                      }
+                      const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(v);
+                      if(!isNaN(n)) sum += n;
+                    }
+                    totalCell.textContent = String(sum);
+                  } catch (err) {
+                    /* ignore */
+                  }
+                }
+
+                // on change/save persist full row into asistencia_values_{month} and update total
+                const persistCell = () => {
+                  try{
+                    const key = (monthInput && monthInput.value) ? `asistencia_values_${monthInput.value}` : null;
+                    if(!key) return;
+                    let arr = [];
+                    try{ arr = JSON.parse(localStorage.getItem(key) || '[]'); }catch(e){ arr = []; }
+                    arr[i] = arr[i] || {};
+                    arr[i].values = arr[i].values || {};
+                    arr[i].values[j] = inp.value || '';
+                    // keep date preserved if previously saved
+                    arr[i].date = arr[i].date || '';
+                    localStorage.setItem(key, JSON.stringify(arr));
+                    // after saving, update the Total Día display for this row
+                    updateRowTotalDisplay();
+                    // also update panel-level Total Entre Semana (recompute across rows)
+                    try { updateTotalEntreSemana(); } catch(e) { /* ignore */ }
+                  }catch(err){}
+                };
+
+                inp.addEventListener('change', persistCell);
+                inp.addEventListener('blur', persistCell);
+                inp.addEventListener('input', () => {
+                  // debounce input saves slightly to avoid churn
+                  clearTimeout(inp._t);
+                  inp._t = setTimeout(persistCell, 250);
+                });
+
+                td.appendChild(inp);
+              }
+            }
+
+            tr.appendChild(td);
+          });
+          tbodyAs.appendChild(tr);
+        }
+        table.appendChild(tbodyAs);
+        body.appendChild(table);
+
+        // add "Total Entre Semana" indicator (bottom-left of panel) and helper to compute it
+        const totalLeftWrap = document.createElement('div');
+        totalLeftWrap.style.display = 'flex';
+        totalLeftWrap.style.alignItems = 'center';
+        totalLeftWrap.style.gap = '8px';
+        totalLeftWrap.style.marginRight = 'auto';
+        totalLeftWrap.style.paddingLeft = '12px';
+
+        const totalLabel = document.createElement('div');
+        totalLabel.style.fontSize = '13px';
+        totalLabel.style.color = 'var(--muted)';
+        totalLabel.style.fontWeight = '700';
+        totalLabel.textContent = 'Total Entre Semana';
+
+        const totalValue = document.createElement('div');
+        totalValue.style.minWidth = '80px';
+        totalValue.style.textAlign = 'center';
+        totalValue.style.fontWeight = '700';
+        totalValue.style.fontSize = '16px';
+        totalValue.style.padding = '8px 10px';
+        totalValue.style.borderRadius = '8px';
+        totalValue.style.background = '#fff';
+        totalValue.style.border = '1px solid var(--subtle)';
+        totalValue.textContent = '0';
+
+        // new: Promedio E.S. indicator placed to the right of Total Entre Semana
+        const promLabel = document.createElement('div');
+        promLabel.style.fontSize = '13px';
+        promLabel.style.color = 'var(--muted)';
+        promLabel.style.fontWeight = '700';
+        promLabel.textContent = 'Promedio E.S.';
+        promLabel.style.marginLeft = '8px';
+
+        const promValue = document.createElement('div');
+        promValue.style.minWidth = '80px';
+        promValue.style.textAlign = 'center';
+        promValue.style.fontWeight = '700';
+        promValue.style.fontSize = '16px';
+        promValue.style.padding = '8px 10px';
+        promValue.style.borderRadius = '8px';
+        promValue.style.background = '#fff';
+        promValue.style.border = '1px solid var(--subtle)';
+        promValue.textContent = '0';
+
+        totalLeftWrap.appendChild(totalLabel);
+        totalLeftWrap.appendChild(totalValue);
+        totalLeftWrap.appendChild(promLabel);
+        totalLeftWrap.appendChild(promValue);
+
+        // NEW: Total Fin de Semana indicator placed under the Entre Semana block
+        const weekendWrap = document.createElement('div');
+        weekendWrap.style.display = 'flex';
+        weekendWrap.style.alignItems = 'center';
+        weekendWrap.style.gap = '8px';
+        weekendWrap.style.marginLeft = '8px';
+        weekendWrap.style.flexDirection = 'column';
+        weekendWrap.style.alignItems = 'flex-start';
+
+        const weekendLabelRow = document.createElement('div');
+        weekendLabelRow.style.display = 'flex';
+        weekendLabelRow.style.alignItems = 'center';
+        weekendLabelRow.style.gap = '8px';
+
+        const weekendLabel = document.createElement('div');
+        weekendLabel.style.fontSize = '13px';
+        weekendLabel.style.color = 'var(--muted)';
+        weekendLabel.style.fontWeight = '700';
+        weekendLabel.textContent = 'Total Fin de Semana';
+
+        const weekendValue = document.createElement('div');
+        weekendValue.style.minWidth = '80px';
+        weekendValue.style.textAlign = 'center';
+        weekendValue.style.fontWeight = '700';
+        weekendValue.style.fontSize = '16px';
+        weekendValue.style.padding = '8px 10px';
+        weekendValue.style.borderRadius = '8px';
+        weekendValue.style.background = '#fff';
+        weekendValue.style.border = '1px solid var(--subtle)';
+        weekendValue.textContent = '0';
+
+        // NEW: Promedio F.S. (average for Fin de Semana) placed to the right of Total Fin de Semana
+        const promFSLabel = document.createElement('div');
+        promFSLabel.style.fontSize = '13px';
+        promFSLabel.style.color = 'var(--muted)';
+        promFSLabel.style.fontWeight = '700';
+        promFSLabel.textContent = 'Promedio F.S.';
+        promFSLabel.style.marginLeft = '8px';
+
+        const promFSValue = document.createElement('div');
+        promFSValue.style.minWidth = '80px';
+        promFSValue.style.textAlign = 'center';
+        promFSValue.style.fontWeight = '700';
+        promFSValue.style.fontSize = '16px';
+        promFSValue.style.padding = '8px 10px';
+        promFSValue.style.borderRadius = '8px';
+        promFSValue.style.background = '#fff';
+        promFSValue.style.border = '1px solid var(--subtle)';
+        promFSValue.textContent = '0';
+
+        weekendLabelRow.appendChild(weekendLabel);
+        weekendLabelRow.appendChild(weekendValue);
+        // append promedio label & value on the same row for horizontal alignment
+        weekendLabelRow.appendChild(promFSLabel);
+        weekendLabelRow.appendChild(promFSValue);
+        weekendWrap.appendChild(weekendLabelRow);
+
+        // footer actions (keep close on the right, indicator on the left)
+        const footer = document.createElement('div');
+        footer.style.padding = '10px 14px';
+        footer.style.borderTop = '1px solid var(--subtle)';
+        footer.style.display = 'flex';
+        footer.style.justifyContent = 'space-between';
+        footer.style.alignItems = 'center';
+        footer.style.gap = '8px';
+
+        // left: total indicator (combine Entre Semana block and weekend block in a vertical stack)
+        const leftContainer = document.createElement('div');
+        leftContainer.style.display = 'flex';
+        leftContainer.style.flexDirection = 'column';
+        leftContainer.style.alignItems = 'flex-start';
+        const topRow = document.createElement('div');
+        topRow.style.display = 'flex';
+        topRow.style.alignItems = 'center';
+        topRow.style.gap = '8px';
+        topRow.appendChild(totalLeftWrap);
+        leftContainer.appendChild(topRow);
+        leftContainer.appendChild(weekendWrap);
+
+        // right: close button
+        const rightContainer = document.createElement('div');
+        rightContainer.style.display = 'flex';
+        rightContainer.style.alignItems = 'center';
+        rightContainer.style.gap = '8px';
+
+        const closeFooter = document.createElement('button');
+        closeFooter.className = 'secondary';
+        closeFooter.textContent = 'Cerrar';
+        closeFooter.addEventListener('click', () => panel.remove());
+
+        rightContainer.appendChild(closeFooter);
+        footer.appendChild(leftContainer);
+        footer.appendChild(rightContainer);
+
+        card.appendChild(hdr);
+        card.appendChild(body);
+        card.appendChild(footer);
+        panel.appendChild(card);
+        document.body.appendChild(panel);
+
+        // helper: compute "Total Entre Semana" summing Total Día for rows whose Fecha is Mon-Fri
+        // (Lunes a Viernes = Entre Semana) and compute "Total Fin de Semana" summing Total Día for rows
+        // whose Fecha is Saturday or Sunday (Sábado y Domingo = Fin de Semana). Promedio E.S. uses only
+        // weekday rows (Mon-Fri) that have a recorded Total Día > 0. Promedio F.S. uses weekend rows with registro > 0.
+        function updateTotalEntreSemana() {
+          try {
+            let sum = 0;
+            let weekendSum = 0;
+            let countWeekdaysWithRegistro = 0;
+            let countWeekendWithRegistro = 0;
+            Array.from(tbodyAs.children).forEach(tr => {
+              // Fecha cell input
+              const firstTd = tr.children[0];
+              if(!firstTd) return;
+              const dateInp = firstTd.querySelector('input[type="date"]');
+              const totalCell = tr.querySelector('.asistencia-total-dia');
+              if(!dateInp || !dateInp.value) return;
+              const d = parseLocalDate(dateInp.value);
+              if(!d || isNaN(d.getTime())) return;
+              const day = d.getDay(); // 0=Sun,1=Mon,...6=Sat
+              const v = totalCell ? (totalCell.textContent || totalCell.innerText) : '';
+              // Only consider rows that have a recorded Total Día: non-empty and numeric
+              const parsed = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
+              if(isNaN(parsed)) return; // no registro for this row -> skip entirely
+              const n = parsed;
+              // Lunes (1) .. Viernes (5) => Entre Semana
+              if(day >= 1 && day <= 5){
+                // include only weekday rows that have a registro greater than 0
+                if(n > 0){
+                  sum += n;
+                  countWeekdaysWithRegistro++;
+                }
+              // Domingo (0) and Sábado (6) => Fin de Semana
+              } else if(day === 0 || day === 6){
+                // weekend total: include only weekend rows that have a registro greater than 0
+                if(n > 0){
+                  weekendSum += n;
+                  countWeekendWithRegistro++;
+                }
+              }
+            });
+            totalValue.textContent = String(sum);
+            weekendValue.textContent = String(weekendSum);
+            // compute average Entre Semana (Promedio E.S.) as sum divided by number of weekday rows that have registro
+            let avg = 0;
+            if(countWeekdaysWithRegistro > 0) avg = sum / countWeekdaysWithRegistro;
+            // display as integer (rounded), no decimals
+            const avgText = Number.isFinite(avg) ? String(Math.round(avg)) : '0';
+            promValue.textContent = avgText;
+            
+            // compute average Fin de Semana (Promedio F.S.) as weekendSum divided by number of weekend rows with registro
+            let avgFS = 0;
+            if(countWeekendWithRegistro > 0) avgFS = weekendSum / countWeekendWithRegistro;
+            const avgFSText = Number.isFinite(avgFS) ? String(Math.round(avgFS)) : '0';
+            try { promFSValue.textContent = avgFSText; } catch(e){ /* ignore if element missing */ }
+          } catch (err) {
+            // ignore
+          }
+        }
+
+        // clicking outside card closes
+        panel.addEventListener('click', (ev) => { if(ev.target === panel) panel.remove(); });
+
+        // when month changes, persist selection and update date/numeric inputs for the newly selected month
+        monthInput.addEventListener('change', () => {
+          try { localStorage.setItem('asistencia_last_month_v1', monthInput.value || ''); } catch(e) {}
+          const [y,m] = (monthInput.value || '').split('-');
+          // restore saved per-month full rows (dates + numeric cells)
+          const valuesKey = (monthInput && monthInput.value) ? `asistencia_values_${monthInput.value}` : null;
+          let savedForNew = null;
+          try { savedForNew = valuesKey ? JSON.parse(localStorage.getItem(valuesKey) || '[]') : null; } catch(e){ savedForNew = null; }
+
+          Array.from(tbodyAs.children).forEach((tr, idx) => {
+            // Fecha cell
+            const firstTd = tr.children[0];
+            const dateInp = firstTd.querySelector('input[type="date"]');
+            const day = String(idx+1).padStart(2,'0');
+
+            if(dateInp){
+              if(savedForNew && Array.isArray(savedForNew) && savedForNew.length > idx && typeof savedForNew[idx] !== 'undefined' && typeof savedForNew[idx].date !== 'undefined'){
+                dateInp.value = savedForNew[idx].date || '';
+              } else if(y && m){
+                dateInp.value = `${y}-${m}-${day}`;
+              } else {
+                dateInp.value = '';
+              }
+              // update visible label
+              const span = firstTd.querySelector('.asistencia-date-display');
+              if(span){
+                try{
+                  const val = dateInp.value || '';
+                  const mm = String(val).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                  let lbl = '';
+                  if(mm){
+                    const yy = Number(mm[1]), mo = Number(mm[2]) - 1, dd = Number(mm[3]);
+                    const dt = new Date(yy, mo, dd);
+                    if(!isNaN(dt)) lbl = `${dt.toLocaleDateString('es', { weekday: 'short' }).replace('.','')} ${String(dt.getDate()).padStart(2,'0')}`;
+                  } else {
+                    lbl = val || '';
+                  }
+                  span.textContent = lbl || '';
+                }catch(e){}
+              }
+            }
+
+            // numeric cells: for each remaining td, set value from savedForNew[idx].values if present
+            const rowSaved = (savedForNew && Array.isArray(savedForNew) && savedForNew[idx]) ? savedForNew[idx] : null;
+            for(let cIdx = 1; cIdx < tr.children.length; cIdx++){
+              const td = tr.children[cIdx];
+              const inp = td.querySelector('input[type="number"]');
+              if(!inp) continue;
+              if(rowSaved && rowSaved.values && typeof rowSaved.values[cIdx] !== 'undefined'){
+                inp.value = rowSaved.values[cIdx];
+              } else {
+                inp.value = '';
+              }
+            }
+
+            // Recalculate this row's Total Día now that inputs were set for the newly selected month.
+            try {
+              const totalCell = tr.querySelector('.asistencia-total-dia');
+              if(totalCell){
+                let sum = 0;
+                // numeric columns are indexes 1..(last-1) where last is the total column
+                const totalColIndex = tr.children.length - 1;
+                for (let k = 1; k < totalColIndex; k++) {
+                  const cell = tr.children[k];
+                  if (!cell) continue;
+                  const inputEl = cell.querySelector('input[type="number"]');
+                  let v = '';
+                  if (inputEl) v = inputEl.value;
+                  else {
+                    // fallback to savedForNew if input missing
+                    if (rowSaved && rowSaved.values && typeof rowSaved.values[k] !== 'undefined') v = rowSaved.values[k];
+                    else v = '';
+                  }
+                  const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
+                  if(!isNaN(n)) sum += n;
+                }
+                totalCell.textContent = String(sum);
+              }
+            } catch (err) {
+              /* ignore calculation errors */
+            }
+          });
+
+          // after month change, recompute Total Entre Semana
+          updateTotalEntreSemana();
+        });
+
+        // compute initial Total Entre Semana immediately after building the panel so the indicator shows correct value on open
+        try { updateTotalEntreSemana(); } catch(e) {}
+
+      });
+
+      // append both buttons
+      wrap.appendChild(reportBtn);
+      wrap.appendChild(asistenciaBtn);
     }
 
     // show range selector button only when a search query is present
