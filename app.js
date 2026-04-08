@@ -4530,11 +4530,39 @@ function renderActivityRowsFor(person, serviceYear){
   container.appendChild(total);
 
   // compute averages:
-  // - courses: total sum of numeric courses divided by 12 months (fixed request)
-  // - hours: average per month across the service year (months.length, usually 12)
+  // - courses: normally total sum of numeric courses divided by 12 months,
+  //            but for Precursor Regular use only months that have both courses and an hours registro
+  // - hours: average calculation differs for Precursor Regular: divide by months that have recorded hours;
+  //          otherwise divide by the number of months in the service year.
   const monthsCount = months.length || 12;
-  const avgHours = monthsCount ? (totalHours / monthsCount) : 0;
-  const avgCourses = 12 ? (totalCourses / 12) : 0;
+
+  // Count months that have numeric hours > 0 (used for both avg hours and avg courses for Precursor Regular)
+  let monthsWithHours = 0;
+  months.forEach(mo => {
+    const act = (person.activities && person.activities[mo.key]) ? person.activities[mo.key] : null;
+    if(!act) return;
+    const hasHours = act.hours !== '' && !isNaN(Number(String(act.hours).trim())) && Number(act.hours) > 0;
+    if(hasHours) monthsWithHours++;
+  });
+
+  // avgCourses: for Precursor Regular and Precursor Auxiliar compute totalCourses / monthsWithHours (ignore months without horas)
+  let avgCourses;
+  const designationTrim = String(person.designation || '').trim();
+  if (designationTrim === 'Precursor Regular' || designationTrim === 'Precursor Auxiliar') {
+    avgCourses = monthsWithHours > 0 ? (totalCourses / monthsWithHours) : 0;
+  } else {
+    avgCourses = 12 ? (totalCourses / 12) : 0;
+  }
+
+  let avgHours = 0;
+  // For Precursor Regular and Precursor Auxiliar, average hours is based only on months that have recorded hours.
+  // For other designations, average hours is computed over the full service-year months count.
+  const designationTrimLocal = String(person.designation || '').trim();
+  if (designationTrimLocal === 'Precursor Regular' || designationTrimLocal === 'Precursor Auxiliar') {
+    avgHours = monthsWithHours > 0 ? (totalHours / monthsWithHours) : 0;
+  } else {
+    avgHours = monthsCount ? (totalHours / monthsCount) : 0;
+  }
 
   // update averages UI if present, format with two decimals
   const avgCoursesEl = $('#pp_avgCourses');
@@ -4543,8 +4571,12 @@ function renderActivityRowsFor(person, serviceYear){
   const metaHoursEl = $('#pp_metaHours');
   const diffWrap = $('#pp_diffWrap');
   const diffEl = $('#pp_diff');
-  if(avgCoursesEl) avgCoursesEl.textContent = (Number.isFinite(avgCourses) ? avgCourses.toFixed(2) : '0.00');
-  if(avgHoursEl) avgHoursEl.textContent = (Number.isFinite(avgHours) ? avgHours.toFixed(2) : '0.00');
+  // new projection elements (to the right of diff)
+  const projWrap = $('#pp_projection_wrap');
+  const projEl = $('#pp_projection');
+
+  if (avgCoursesEl) avgCoursesEl.textContent = (Number.isFinite(avgCourses) ? avgCourses.toFixed(2) : '0.00');
+  if (avgHoursEl) avgHoursEl.textContent = (Number.isFinite(avgHours) ? avgHours.toFixed(2) : '0.00');
 
   // Show "Meta horas" (editable, default 600) only when the person has designation "Precursor Regular"
   const designation = String(person.designation || '').trim();
@@ -4559,6 +4591,33 @@ function renderActivityRowsFor(person, serviceYear){
     const diff = totalHours - metaNum;
     if(diffEl) diffEl.textContent = String(diff);
     if(diffWrap) diffWrap.style.display = 'block';
+
+    // compute and display Proyección (Promedio horas * 12, rounded, no decimals)
+    // create projection wrapper if it doesn't exist in DOM (first-time render)
+    if(!projWrap && diffWrap && diffWrap.parentNode){
+      const wrapper = document.createElement('div');
+      wrapper.id = 'pp_projection_wrap';
+      wrapper.style.background = '#fff';
+      wrapper.style.border = '1px solid var(--subtle)';
+      wrapper.style.borderRadius = '8px';
+      wrapper.style.padding = '8px 10px';
+      wrapper.style.minWidth = '140px';
+      wrapper.style.textAlign = 'center';
+      // rely on parent flex gap for consistent spacing (do not add extra margin)
+      wrapper.innerHTML = '<div style="font-weight:700; color:var(--muted); font-size:12px;">Proyección</div><div id="pp_projection" style="font-weight:700; font-size:15px;">0</div>';
+      // insert projection to the right of diffWrap's parent (diffWrap is inside #pp_diffWrap container)
+      diffWrap.parentNode.appendChild(wrapper);
+    }
+    // update projection element reference after ensuring presence
+    const projElNow = $('#pp_projection');
+    if(projElNow){
+      // projection = promedio horas * 12, round to integer and show without decimals
+      const projNum = Number.isFinite(avgHours) ? Math.round(avgHours * 12) : 0;
+      projElNow.textContent = String(projNum);
+      // ensure wrapper visible
+      const pw = $('#pp_projection_wrap');
+      if(pw) pw.style.display = 'block';
+    }
 
     // Make meta value editable via double-click: turn into input, commit on blur/Enter, persist to person.metaHours
     if(metaHoursEl){
@@ -4650,6 +4709,9 @@ function renderActivityRowsFor(person, serviceYear){
   } else {
     if(metaWrap) metaWrap.style.display = 'none';
     if(diffWrap) diffWrap.style.display = 'none';
+    // hide projection if present for non-Precursor Regular
+    const pw = $('#pp_projection_wrap');
+    if(pw) pw.style.display = 'none';
   }
 
   // populate year selector if present in popup and hook change to re-render
@@ -4743,10 +4805,7 @@ document.addEventListener('DOMContentLoaded', () => {
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
       pdf.text('REGISTRO DE PUBLICADOR DE LA CONGREGACION', margin, y);
-      // add a slightly larger gap after the title so the title is visually separated from the following info
       y += 28;
-
-      // (removed subtitle line per request) — preserve small vertical gap after title
       y += 18;
 
       // Personal info fields from popup inputs
@@ -4782,13 +4841,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const rowH = Math.max(12, consumed);
         maxRowH = Math.max(maxRowH, rowH);
         if(i % 2 === 1){
-          // advance y after completing the pair
           y += maxRowH + 6;
           maxRowH = 0;
         }
       });
       if(fields.length % 2 === 1) y += maxRowH + 6;
-
       y += 6;
 
       // Activity year selector (read selected year from popup)
@@ -4815,34 +4872,24 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Acquire person activities from currently shown person inputs
-      // We rely on the profile popup inputs for person identity; try to find the person in data store to get activities
       const congNameVal = $('#pp_congName') ? $('#pp_congName').value : '';
       const person = people.find(p => (p.congName || '') === congNameVal) || null;
 
       const months = monthsForServiceYear(serviceYear);
 
-      // Table header
-      // Compute column widths so:
-      // - "Mes" is just wide enough to show its longest month label on one line
-      // - Four middle columns share equal width
-      // - "Notas" is wider than the others and takes the remaining space
-      const monthsForPDF = months; // months array already computed above
-      // estimate required width for "Mes" by measuring each label with pdf.getTextWidth
+      // Table header layout calculation
+      const monthsForPDF = months;
       let maxLabelW = 0;
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(10);
       monthsForPDF.forEach(mo => {
-        const w = pdf.getTextWidth(String(mo.label || '')) + 8; // small padding
+        const w = pdf.getTextWidth(String(mo.label || '')) + 8;
         if (w > maxLabelW) maxLabelW = w;
       });
-      // clamp mes width to reasonable bounds
       const minMesW = 70;
       const maxMesWClamp = Math.min(usableW * 0.22, 160);
       const mesW = Math.max(minMesW, Math.min(maxLabelW, maxMesWClamp));
-
-      // remaining width to distribute
       const remaining = usableW - mesW;
-      // allocate ~30% of remaining to Notes, rest divided equally among 4 middle cols
       const notesW = Math.floor(remaining * 0.30);
       const otherColsCount = 4;
       const otherW = Math.floor((remaining - notesW) / otherColsCount);
@@ -4855,7 +4902,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { title: 'Horas', w: otherW },
         { title: 'Notas', w: Math.max(remaining - otherW * otherColsCount, notesW) }
       ];
-      // Ensure page has space; if not, add new page
+
       function ensureSpace(h){
         if(y + h > pageHeight - margin){
           pdf.addPage();
@@ -4870,7 +4917,6 @@ document.addEventListener('DOMContentLoaded', () => {
       ensureSpace(headerH + 6);
       let tx = margin;
       cols.forEach(c => {
-        // center header text inside the column
         pdf.text(String(c.title), tx + c.w / 2, y + 11, { align: 'center' });
         tx += c.w;
       });
@@ -4878,56 +4924,88 @@ document.addEventListener('DOMContentLoaded', () => {
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(9);
 
-      // Rows
+      // Rows: compute totals using the same rules as the popup's renderActivityRowsFor
       let totalHours = 0;
-      // additional accumulators for courses so we can calculate averages like the popup does
       let totalCourses = 0;
-      let numericCoursesCount = 0;
+      let monthsWithCoursesAndHours = 0;
+      let monthsWithHours = 0;
+
+      // Determine earliest "Inicio" / "Fin" markers for preserving behavior (same as popup)
+      let finMonth = '';
+      let startMonth = '';
+      if (person && person.activities) {
+        for (const k of Object.keys(person.activities)) {
+          if (k === '_lastMonth') continue;
+          const candidate = person.activities[k];
+          const txt = String(candidate && candidate.comments || '').trim();
+          if (txt === 'Fin Precursorado Regular') {
+            if (!finMonth || k < finMonth) finMonth = k;
+          }
+          if (txt === 'Inicio Precursorado Regular') {
+            if (!startMonth || k < startMonth) startMonth = k;
+          }
+        }
+      }
+
+      const designation = person ? String(person.designation || '').trim() : '';
+      const isPrecursorGlobal = (designation === 'Precursor Regular' || designation === 'Precursor Auxiliar');
 
       months.forEach(m => {
         ensureSpace(18);
-        const act = (person && person.activities && person.activities[m.key]) ? person.activities[m.key] : { participation:false, studies:'', aux:false, hours:'', comments:'' };
+        const act = (person && person.activities && person.activities[m.key]) ? person.activities[m.key] : { aux:false, hours:'', studies:'', comments:'' };
 
-        // Determine whether to display hours for this person/month:
-        const designation = person ? String(person.designation || '').trim() : '';
-        const isPrecursor = (designation === 'Precursor Regular');
-        // Never show hours when the recorded value is exactly 1
-        const _hoursValStr_pdf = String(act.hours || '').trim();
-        const _isExactlyOne_pdf = (_hoursValStr_pdf === '1' || Number(_hoursValStr_pdf) === 1);
-        const showHoursForMonth = !_isExactlyOne_pdf && (isPrecursor || !!act.aux);
-
-        // Participation should reflect the stored record: only when numeric hours > 0
-        const participated = (act.hours !== '' && parseInt(act.hours || 10) > 0);
-        const participation = participated ? '✔' : '';
-
-        const courses = act.studies || '';
-        const precursor = act.aux ? '✔' : '';
-        const hours = showHoursForMonth ? (act.hours || '') : '';
-
-        // Only accumulate hours when they are shown (consistent with display)
-        totalHours += (showHoursForMonth && act.hours !== '') ? (parseInt(act.hours || 0,10) || 0) : 0;
-
-        // accumulate numeric courses for average calculation
-        if(courses !== '' && !isNaN(Number(courses))){
-          totalCourses += Number(courses);
-          numericCoursesCount++;
+        // Determine showHoursForMonth consistent with popup:
+        const monthKey = m.key;
+        const isBeforeFin = ((startMonth && monthKey < startMonth) || (finMonth && monthKey < finMonth));
+        const _hoursValStr = String(act.hours || '').trim();
+        const _isExactlyOne = (_hoursValStr === '1' || Number(_hoursValStr) === 1);
+        let showHoursForMonth = false;
+        if (!isBeforeFin) {
+          if (!isPrecursorGlobal) {
+            const hnum = act.hours === '' ? NaN : Number(act.hours);
+            if (!isNaN(hnum) && hnum > 1) showHoursForMonth = true;
+            else showHoursForMonth = false;
+          } else {
+            // Precursor Regular: show hours (but popup hides exact '1' values)
+            // we'll still ensure hours shown only when not exactly 1
+            showHoursForMonth = !_isExactlyOne;
+          }
+        } else {
+          // before fin/start: preserve stored hours visibility if >1
+          if (act.hours !== '' && !isNaN(Number(act.hours)) && Number(act.hours) > 1) showHoursForMonth = true;
         }
 
+        // accumulate totals based on same criteria as the UI:
+        // - totalHours: sum of numeric hours only when they are considered "shown" per above
+        if (showHoursForMonth && act.hours !== '' && !isNaN(Number(act.hours))) {
+          totalHours += Number(act.hours);
+        }
+
+        // courses accumulation and counts for averages similar to UI:
+        const hasCourses = act.studies !== '' && !isNaN(Number(String(act.studies).trim()));
+        const hasHours = act.hours !== '' && !isNaN(Number(String(act.hours).trim())) && Number(act.hours) > 0;
+
+        if (hasCourses && hasHours) monthsWithCoursesAndHours++;
+        if (hasHours) monthsWithHours++;
+        if (hasCourses) totalCourses += Number(act.studies);
+
+        // Render the row visually as before (unchanged drawing code)
+        const participated = (act.hours !== '' && parseInt(act.hours || 10) > 0);
+        const participation = participated ? '✔' : '';
+        const coursesText = act.studies || '';
+        const precursor = act.aux ? '✔' : '';
+        const hoursText = showHoursForMonth ? (act.hours || '') : '';
         const notes = act.comments || '';
 
-        // draw columns with wrapping where needed
         let cx = margin;
-        // Mes (wrap & center)
         const mesLines = pdf.splitTextToSize(String(m.label || ''), cols[0].w - 6);
         pdf.text(mesLines, cx + cols[0].w / 2, y + 10, { align: 'center' });
         cx += cols[0].w;
 
-        // Participación (center) — draw only a vector checkmark (no surrounding box) when participated
         const partX = cx + cols[1].w / 2;
         const partY = y + 8;
         const checkSize = 10;
         if (participated) {
-          // draw a crisp checkmark centered at partX, partY
           pdf.setDrawColor(0);
           pdf.setLineWidth(1.1);
           const cx0 = partX - checkSize / 2;
@@ -4940,19 +5018,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         cx += cols[1].w;
 
-        // Cursos bíblicos (center)
-        pdf.text(String(courses || ''), cx + cols[2].w / 2, y + 10, { align: 'center' });
+        pdf.text(String(coursesText || ''), cx + cols[2].w / 2, y + 10, { align: 'center' });
         cx += cols[2].w;
 
-        // Precursor aux. (center) — draw a crisp checkmark vector when true (avoids glyph clipping)
         const precursorX = cx + cols[3].w / 2;
-        const precursorY = y + 8;
         const precursorSize = 10;
         if (precursor) {
           pdf.setDrawColor(0);
           pdf.setLineWidth(1.1);
           const pCx0 = precursorX - precursorSize / 2;
-          const pCy0 = precursorY - precursorSize / 2;
+          const pCy0 = y + 8 - precursorSize / 2;
           const px1 = pCx0 + precursorSize * 0.18, py1 = pCy0 + precursorSize * 0.55;
           const px2 = pCx0 + precursorSize * 0.45, py2 = pCy0 + precursorSize * 0.80;
           const px3 = pCx0 + precursorSize * 0.82, py3 = pCy0 + precursorSize * 0.26;
@@ -4961,85 +5036,83 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         cx += cols[3].w;
 
-        // Horas (center) - only render numeric hours when permitted
-        const hoursText = String(hours || '');
-        pdf.text(hoursText, cx + cols[4].w / 2, y + 10, { align: 'center' });
+        pdf.text(String(hoursText || ''), cx + cols[4].w / 2, y + 10, { align: 'center' });
         cx += cols[4].w;
 
-        // Notas (wrap & center)
         const notesLines = pdf.splitTextToSize(String(notes || ''), cols[5].w - 6);
-        // draw each notes line centered
         pdf.text(notesLines, cx + cols[5].w / 2, y + 10, { align: 'center' });
 
-        // determine row height based on tallest wrapped column (mesLines or notesLines)
         const mesH = (pdf.splitTextToSize(String(m.label || ''), cols[0].w - 6).length || 1) * 10 + 6;
         const notesH = (notesLines.length || 1) * 10 + 6;
         const rowH = Math.max(14, mesH, notesH);
-
-        // draw a thin gray horizontal separator under the row to visually separate months
         try {
-          const lineY = y + rowH - 2; // slightly above the next row start
-          pdf.setDrawColor(180); // light gray
+          const lineY = y + rowH - 2;
+          pdf.setDrawColor(180);
           pdf.setLineWidth(0.5);
           pdf.line(margin, lineY, margin + usableW, lineY);
-          // restore draw color and line width for subsequent content
           pdf.setDrawColor(0);
           pdf.setLineWidth(0.5);
-        } catch (e) {
-          // ignore drawing errors silently
-        }
-
+        } catch (e) {}
         y += rowH;
       });
 
-      // compute averages consistent with popup:
-      // avgCourses: sum of numeric courses divided by 12 (fixed)
-      // avgHours: average per month across the service year (months.length)
-      const monthsCount = months.length || 12;
-      const avgCourses = 12 ? (totalCourses / 12) : 0;
-      const avgHours = monthsCount ? (totalHours / monthsCount) : 0;
-
-      // Totals and averages
-      ensureSpace(36);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(`Total horas: ${totalHours}`, margin, y + 12);
-
-      // place averages to the right of total
-      const avgTextX = margin + 220;
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(`Promedio cursos: ${Number.isFinite(avgCourses) ? avgCourses.toFixed(2) : '0.00'}`, avgTextX, y + 12);
-      pdf.text(`Promedio horas: ${Number.isFinite(avgHours) ? avgHours.toFixed(2) : '0.00'}`, avgTextX, y + 28);
-
-      // If the person is a "Precursor Regular", include Meta horas and Faltante / Sobrante
-      const designation = person ? String(person.designation || '').trim() : '';
-      if(designation === 'Precursor Regular'){
-        // determine meta value (persisted per-person or default 600)
-        const metaValStr = (person && person.metaHours !== undefined && person.metaHours !== null && String(person.metaHours).trim() !== '') ? String(person.metaHours) : '600';
-        const metaNum = parseInt(metaValStr, 10) || 0;
-        const diff = totalHours - metaNum;
-
-        // draw meta and diff below averages (aligned with averages area)
-        // Render "Meta horas" without bold weight (use normal)
-        pdf.setFont('helvetica', 'normal');
-        pdf.text(`Meta horas: ${metaNum}`, avgTextX, y + 44);
-        pdf.setFont('helvetica', 'normal');
-        const diffText = (diff >= 0) ? `Sobrante: ${diff}` : `Faltante: ${Math.abs(diff)}`;
-        pdf.text(`Faltante / Sobrante: ${diffText}`, avgTextX, y + 60);
-
-        y += 64;
+      // Match popup averages logic exactly:
+      // avgCourses: for Precursor Regular/Auxiliar => totalCourses / monthsWithHours (ignore months without horas),
+      //             otherwise totalCourses / 12.
+      // avgHours: for Precursor Regular/Auxiliar => totalHours / monthsWithHours, otherwise totalHours / monthsCount.
+      const monthsCountTotal = months.length || 12;
+      let avgCourses;
+      let avgHours;
+      if (isPrecursorGlobal) {
+        // Use monthsWithHours for both averages to match the popup logic (Precursor Regular & Auxiliar)
+        avgCourses = monthsWithHours > 0 ? (totalCourses / monthsWithHours) : 0;
+        avgHours = monthsWithHours > 0 ? (totalHours / monthsWithHours) : 0;
       } else {
-        y += 36;
+        avgCourses = monthsCountTotal ? (totalCourses / 12) : 0;
+        avgHours = monthsCountTotal ? (totalHours / monthsCountTotal) : 0;
       }
 
-      // Footer with generation date
+      ensureSpace(36);
+      pdf.setFont('helvetica', 'bold');
+      // For Precursor Auxiliar we do NOT print "Total horas" or meta/diff; the PDF must match the popup indicators exactly.
+      const avgTextX = margin + 220;
+      pdf.setFont('helvetica', 'normal');
+
+      if (designation === 'Precursor Auxiliar') {
+        // Show only the two indicators as in the popup: Promedio cursos and Promedio horas
+        pdf.text(`Promedio cursos: ${Number.isFinite(avgCourses) ? avgCourses.toFixed(2) : '0.00'}`, avgTextX, y + 12);
+        pdf.text(`Promedio horas: ${Number.isFinite(avgHours) ? avgHours.toFixed(2) : '0.00'}`, avgTextX, y + 28);
+        y += 40;
+      } else {
+        // Non-auxiliar behavior: include Total horas, averages, and for Precursor Regular show meta/proyección/faltante
+        pdf.text(`Total horas: ${totalHours}`, margin, y + 12);
+        pdf.text(`Promedio cursos: ${Number.isFinite(avgCourses) ? avgCourses.toFixed(2) : '0.00'}`, avgTextX, y + 12);
+        pdf.text(`Promedio horas: ${Number.isFinite(avgHours) ? avgHours.toFixed(2) : '0.00'}`, avgTextX, y + 28);
+
+        if (designation === 'Precursor Regular') {
+          const metaValStr = (person && person.metaHours !== undefined && person.metaHours !== null && String(person.metaHours).trim() !== '') ? String(person.metaHours) : '600';
+          const metaNum = parseInt(metaValStr, 10) || 0;
+          const diff = totalHours - metaNum;
+          // Projection must equal displayed projection: avgHours * 12 rounded to integer (no decimals)
+          const projection = Number.isFinite(avgHours) ? Math.round(avgHours * 12) : 0;
+
+          pdf.setFont('helvetica', 'normal');
+          pdf.text(`Meta horas: ${metaNum}`, avgTextX, y + 44);
+          pdf.text(`Proyección: ${projection}`, avgTextX, y + 60);
+          const diffText = (diff >= 0) ? `Sobrante: ${diff}` : `Faltante: ${Math.abs(diff)}`;
+          pdf.text(`Faltante / Sobrante: ${diffText}`, avgTextX, y + 76);
+          y += 88;
+        } else {
+          y += 36;
+        }
+      }
+
       pdf.setFontSize(8);
       pdf.setFont('helvetica', 'normal');
       const now = new Date();
       pdf.text(`Generado: ${now.toLocaleString()}`, margin, pageHeight - margin - 6);
 
-      // filename from congName or fallback
       const nameEl = $('#pp_congName');
-      // sanitize and build filename as "YYYY.MM.DD - S21 - Nombre (Cong.).pdf"
       const rawName = (nameEl && nameEl.value) ? nameEl.value.replace(/[^\w\-\s]/g,'').trim() : 'registro';
       const nowStr = (() => {
         const d = new Date();
