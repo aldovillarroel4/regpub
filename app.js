@@ -1604,8 +1604,9 @@ function updateOptionsBar(){
             }
 
             let avgFS = 0;
-            if(countWeekendWithRegistro > 0) avgFS = weekendSum / countWeekendWithRegistro;
-            const avgFSText = Number.isFinite(avgFS) ? (Math.abs(avgFS - Math.round(avgFS)) < 1e-9 ? String(Math.round(avgFS)) : avgFS.toFixed(2)) : '0';
+            if (countWeekendWithRegistro > 0) avgFS = weekendSum / countWeekendWithRegistro;
+            // display Promedio F.S. as an integer with no decimals
+            const avgFSText = Number.isFinite(avgFS) ? String(Math.round(avgFS)) : '0';
             try { promValueBox.textContent = avgFSText; } catch(e) { /* ignore if element missing */ }
           } catch (err) {
             // ignore any storage/parse errors
