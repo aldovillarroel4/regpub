@@ -3867,7 +3867,7 @@ tbody.addEventListener('dblclick', (e) => {
   if(pIndex === -1) return;
   const person = people[pIndex];
 
-  // Activity mode: double-click now selects the row (or if double-click on cong-cell, opens modal per previous behavior after selecting)
+  // Activity mode: double-click now selects the row (and opens the profile popup if the cong-name cell was double-clicked)
   if(activityMode){
     // Manage selection for rows (double-click required)
     const prev = tbody.querySelector('tr.selected');
@@ -3910,10 +3910,18 @@ tbody.addEventListener('dblclick', (e) => {
       }
     }
 
-    // If double-click specifically on cong-cell, also open the profile popup (preserve previous behavior)
-    if (td.classList.contains('cong-cell')) {
-      openModal('edit', person);
+    // If the user double-clicked specifically on the "Nombre (Cong.)" cell, open the profile popup for this person.
+    // Note: e is available from the outer scope of the dblclick handler.
+    try {
+      if (e && e.target && e.target.closest && e.target.closest('.cong-cell')) {
+        showProfilePopup(person);
+      }
+    } catch (err) {
+      // fail silently if anything unexpected happens
+      console.error('Error opening profile popup on dblclick in Activity mode', err);
     }
+
+    // Do not open the inline edit modal in Activity mode.
     return;
   }
 
