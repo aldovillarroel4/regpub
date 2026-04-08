@@ -3788,11 +3788,21 @@ tbody.addEventListener('click', (e) => {
     ) {
       // ignore for selection
     } else {
-      // If not activityMode and clicked specifically on the cong-cell, show profile popup
-      if (!activityMode && target.closest('.cong-cell')) {
+      // If clicked specifically on the cong-cell, show profile popup (both Registro and Actividad)
+      if (target.closest('.cong-cell')) {
         const id = tr.dataset.id;
         const p = people.find(x => x.id === id);
-        if (p) showProfilePopup(p);
+        if (p) {
+          // In Activity mode, preserve transient highlight behavior before opening popup:
+          if (activityMode) {
+            // remove other transient highlights and highlight this row
+            tbody.querySelectorAll('tr.highlight').forEach(r => r.classList.remove('highlight'));
+            tr.classList.add('highlight');
+            // do not set persistent selectedId here; update UI context
+            updateOptionsBar();
+          }
+          showProfilePopup(p);
+        }
         return;
       }
 
@@ -3867,7 +3877,7 @@ tbody.addEventListener('dblclick', (e) => {
   if(pIndex === -1) return;
   const person = people[pIndex];
 
-  // Activity mode: double-click now selects the row (and opens the profile popup if the cong-name cell was double-clicked)
+  // Activity mode: double-click now selects the row (or if double-click on cong-cell, opens modal per previous behavior after selecting)
   if(activityMode){
     // Manage selection for rows (double-click required)
     const prev = tbody.querySelector('tr.selected');
@@ -3910,18 +3920,7 @@ tbody.addEventListener('dblclick', (e) => {
       }
     }
 
-    // If the user double-clicked specifically on the "Nombre (Cong.)" cell, open the profile popup for this person.
-    // Note: e is available from the outer scope of the dblclick handler.
-    try {
-      if (e && e.target && e.target.closest && e.target.closest('.cong-cell')) {
-        showProfilePopup(person);
-      }
-    } catch (err) {
-      // fail silently if anything unexpected happens
-      console.error('Error opening profile popup on dblclick in Activity mode', err);
-    }
-
-    // Do not open the inline edit modal in Activity mode.
+    // No longer open edit modal on double-clicking the "Nombre (Cong.)" cell in Activity mode.
     return;
   }
 
