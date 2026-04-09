@@ -445,7 +445,7 @@ function render(filter=''){
           <td><input type="month" class="act-month" value="${escapeHtml(monthKey)}" style="width:100%"/></td>
           <td>${escapeHtml(p.group || '')}</td>
           <td>${escapeHtml(p.privilege || '')}</td>
-          <td>${escapeHtml(p.designation || '')}</td>
+          <td class="designation-cell">${escapeHtml(p.designation || '')}</td>
           <td style="text-align:center"><input type="checkbox" class="act-aux" ${act.aux ? 'checked': ''} /></td>
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-hours num-input" value="${escapeHtml(act.hours || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-studies num-input" value="${escapeHtml(act.studies || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
@@ -488,7 +488,7 @@ function render(filter=''){
           <td><input type="month" class="act-month" value="${escapeHtml(monthKey)}" style="width:100%"/></td>
           <td>${escapeHtml(p.group || '')}</td>
           <td>${escapeHtml(p.privilege || '')}</td>
-          <td>${escapeHtml(p.designation || '')}</td>
+          <td class="designation-cell">${escapeHtml(p.designation || '')}</td>
           <td style="text-align:center"><input type="checkbox" class="act-aux" ${act.aux ? 'checked': ''} /></td>
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-hours num-input" value="${escapeHtml(act.hours || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
           <td><input type="number" inputmode="numeric" step="1" min="0" class="act-studies num-input" value="${escapeHtml(act.studies || '')}" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #e6e9ee;text-align:right" /></td>
@@ -3336,6 +3336,11 @@ actividadBtn.addEventListener('click', () => {
   // visually indicate active state
   actividadBtn.classList.toggle('active', activityMode);
   if(registroBtn) registroBtn.classList.toggle('active', !activityMode);
+
+  // add class to table to allow CSS targeting of activity-mode specific cells
+  const peopleTable = document.getElementById('peopleTable');
+  if(peopleTable) peopleTable.classList.add('activity-mode');
+
   updateOptionsBar();
   render(searchInput.value);
 });
@@ -3346,6 +3351,11 @@ if(registroBtn){
     activityMode = false;
     registroBtn.classList.toggle('active', !activityMode);
     if(actividadBtn) actividadBtn.classList.toggle('active', activityMode);
+
+    // remove activity-mode class from table when leaving Activity view
+    const peopleTable = document.getElementById('peopleTable');
+    if(peopleTable) peopleTable.classList.remove('activity-mode');
+
     updateOptionsBar();
     render(searchInput.value);
   });
@@ -5307,6 +5317,128 @@ tbody.addEventListener('click', (e) => {
       if (!tab) return;
       if (!tab.contains(ev.target) && ev.target !== infoBtn) {
         tab.remove();
+        document.removeEventListener('click', onDocClick);
+      }
+    };
+    document.addEventListener('click', onDocClick);
+  }, 0);
+});
+
+/* Right-click (contextmenu) handler: allow in-place editing of "Designación" cell in Activity mode.
+   When user right-clicks the Designación cell, a small dropdown appears with designation options;
+   selecting one updates the person's designation, persists to localStorage and re-renders. */
+tbody.addEventListener('contextmenu', (e) => {
+  const td = e.target.closest('td');
+  if(!td) return;
+  const tr = td.parentElement;
+  if(!tr || tr.parentElement !== tbody) return;
+
+  // do nothing outside Activity mode
+  if(!activityMode) return;
+
+  // find the index of the clicked cell and compare header text to ensure it's the "Designación" column
+  const ths = document.querySelectorAll('#peopleTable thead th');
+  const cellIndex = Array.prototype.indexOf.call(tr.children, td);
+  const headerText = (ths[cellIndex] && ths[cellIndex].textContent) ? ths[cellIndex].textContent.trim().toLowerCase() : '';
+
+  if(!headerText.includes('designación') && !headerText.includes('designacion')) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  // remove any existing context panel
+  const existing = document.getElementById('designationContextTab');
+  if(existing) existing.remove();
+
+  // build small panel similar to month-tab but with select/options
+  const panel = document.createElement('div');
+  panel.id = 'designationContextTab';
+  panel.className = 'month-tab';
+  panel.style.minWidth = '200px';
+  panel.style.padding = '8px';
+  panel.style.display = 'flex';
+  panel.style.flexDirection = 'column';
+  panel.style.gap = '8px';
+
+  const title = document.createElement('div');
+  title.style.fontWeight = '700';
+  title.style.color = 'var(--muted)';
+  title.textContent = 'Editar Designación';
+  panel.appendChild(title);
+
+  const select = document.createElement('select');
+  select.style.padding = '8px';
+  select.style.borderRadius = '8px';
+  select.style.border = '1px solid var(--subtle)';
+  const options = ['','Precursor Regular','Precursor Auxiliar','No Asignar','No Bautizado','N/A'];
+  options.forEach(opt => {
+    const o = document.createElement('option');
+    o.value = opt;
+    o.textContent = opt || '-';
+    select.appendChild(o);
+  });
+  // preselect current value
+  const id = tr.dataset.id;
+  const person = people.find(p => p.id === id);
+  if(person){
+    select.value = person.designation || '';
+  }
+  panel.appendChild(select);
+
+  const actions = document.createElement('div');
+  actions.style.display = 'flex';
+  actions.style.justifyContent = 'flex-end';
+  actions.style.gap = '8px';
+
+  const cancel = document.createElement('button');
+  cancel.className = 'secondary';
+  cancel.textContent = 'Cancelar';
+  cancel.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    panel.remove();
+  });
+  actions.appendChild(cancel);
+
+  const apply = document.createElement('button');
+  apply.className = 'primary';
+  apply.textContent = 'Aplicar';
+  apply.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if(!person) return;
+    const newVal = select.value || '';
+    person.designation = newVal;
+    // special rule: if setting to Precursor Regular, ensure Aux. Mes must be false for all months
+    if(String(newVal).trim() === 'Precursor Regular' && person.activities){
+      Object.keys(person.activities).forEach(k => {
+        if(k === '_lastMonth') return;
+        const act = person.activities[k];
+        if(act && act.aux){
+          act.aux = false;
+        }
+      });
+    }
+    save();
+    render(searchInput.value);
+    panel.remove();
+  });
+  actions.appendChild(apply);
+  panel.appendChild(actions);
+
+  document.body.appendChild(panel);
+  // position panel near mouse click (avoid overflow)
+  const x = e.clientX;
+  const y = e.clientY;
+  panel.style.position = 'absolute';
+  panel.style.left = (x + window.scrollX) + 'px';
+  panel.style.top = (y + window.scrollY) + 'px';
+  panel.style.zIndex = 9999;
+
+  // close if clicking elsewhere
+  setTimeout(() => {
+    const onDocClick = (ev) => {
+      if(!panel) return;
+      if(!panel.contains(ev.target)){
+        panel.remove();
         document.removeEventListener('click', onDocClick);
       }
     };

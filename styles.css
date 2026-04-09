@@ -480,6 +480,13 @@ body{
   font-weight: 700;
 }
 
+/* In Activity mode, hovering the Designación column indicates editability by turning text red */
+#peopleTable.activity-mode td.designation-cell:hover {
+  color: var(--danger);
+  cursor: pointer;
+  transition: color .12s ease;
+}
+
 /* Recent baptism age indicator (red until 1 year 6 months) */
 .age-recent{
   color: var(--danger);
