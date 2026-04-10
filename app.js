@@ -205,6 +205,9 @@ function render(filter=''){
   const theadRow = document.querySelector('#peopleTable thead tr');
   const colgroup = document.getElementById('cols');
   if(activityMode){
+    // set activity-view class on table to allow mode-specific styling
+    document.getElementById('peopleTable').classList.add('activity-view');
+
     // set headers for activity view (each header gets a filter button like in Registry)
     theadRow.innerHTML = `
       <th>Nombre (Cong.) <button class="col-filter" data-idx="0" title="Filtrar columna">🔍</button></th>
@@ -226,6 +229,9 @@ function render(filter=''){
       colgroup.appendChild(c);
     });
   } else {
+    // remove activity-view class when leaving activity mode so styling doesn't leak
+    document.getElementById('peopleTable').classList.remove('activity-view');
+
     // restore original registry headers
     // registry headers with per-column filter buttons (only shown/used in registry mode)
     theadRow.innerHTML = `
@@ -418,27 +424,11 @@ function render(filter=''){
           }
         }
 
-        // Ensure Aux. Mes is active ONLY when hours > 1 for non-Precursor Regular;
-        // if hours is 1 or empty, force aux to false and persist.
-        // IMPORTANT: if this month is earlier than finMonth OR earlier than startMonth, do not auto-modify aux.
-        const isBeforeFin = ((startMonth && monthKey < startMonth) || (finMonth && monthKey < finMonth));
-        if (!isBeforeFin) {
-          if (String(p.designation || '').trim() !== 'Precursor Regular') {
-            const hnum = act.hours === '' ? NaN : Number(act.hours);
-            if (!isNaN(hnum) && hnum > 1) {
-              act.aux = true;
-            } else {
-              // hours === 1 or empty (or non-numeric) => ensure aux is not active
-              act.aux = false;
-            }
-          } else {
-            // Precursor Regular: Aux. Mes must always be false (never auto-activate or preserve a checked state)
-            act.aux = false;
-          }
-        }
+        // Set hours/comments and defer aux decision to the central reconcile function
         if (!p.activities) p.activities = {};
         p.activities[monthKey] = act;
-        save();
+        // Recompute aux flags for this person according to the global rules (independent of designation)
+        try { reconcileAuxForPerson(p); } catch(e){}
 
         tr.innerHTML = `
           <td class="cong-cell">${escapeHtml(p.congName || '')}</td>
@@ -469,19 +459,10 @@ function render(filter=''){
         const monthKey = p.activities._lastMonth || new Date().toISOString().slice(0,7);
         let act = p.activities[monthKey] || { aux:false, hours:'', studies:'', comments:'' };
 
-        // Ensure Aux. Mes is active ONLY when hours > 1 for non-Precursor Regular;
-        // if hours is 1 or empty, force aux to false and persist.
-        if (String(p.designation || '').trim() !== 'Precursor Regular') {
-          const hnum = act.hours === '' ? NaN : Number(act.hours);
-          if (!isNaN(hnum) && hnum > 1) {
-            act.aux = true;
-          } else {
-            act.aux = false;
-          }
-          if (!p.activities) p.activities = {};
-          p.activities[monthKey] = act;
-          save();
-        }
+        // Save current month values and recompute aux for the whole person per the new rules
+        if(!p.activities) p.activities = {};
+        p.activities[monthKey] = act;
+        try { reconcileAuxForPerson(p); } catch(e){}
 
         tr.innerHTML = `
           <td class="cong-cell">${escapeHtml(p.congName || '')}</td>
@@ -827,6 +808,61 @@ function parseLocalDate(dateStr){
   }
   const parsed = new Date(s);
   return isNaN(parsed) ? null : parsed;
+}
+
+/* Reconcile Aux. Mes values for a single person according to the new rules:
+   - Aux. Mes is true only when the month's hours > 1, except inside exception ranges.
+   - Exception ranges start at a month whose comments === 'Inicio Precursorado Regular' and
+     end at the next month whose comments === 'Fin Precursorado Regular' (inclusive).
+   - Months that themselves have comments 'Inicio Precursorado Regular' or 'Fin Precursorado Regular'
+     must always have aux=false.
+   - Only the person's own activity rows are considered; nothing else affects another person.
+   - This function mutates p.activities and persists via save() when changes are made.
+*/
+function reconcileAuxForPerson(p){
+  if(!p) return;
+  if(!p.activities) p.activities = {};
+  // collect month keys (exclude _lastMonth)
+  const months = Object.keys(p.activities).filter(k => k !== '_lastMonth').sort();
+  if(months.length === 0) return;
+  // Build list of exception ranges: find each Inicio then the next Fin after it (if any).
+  // We'll iterate months in chronological order and maintain a flag if insideException.
+  let insideException = false;
+  // We need to treat each month independently: a month with Inicio toggles entering the exception (including that month),
+  // the Fin month ends it (including that month).
+  for(const mk of months){
+    const act = p.activities[mk] || { aux:false, hours:'', studies:'', comments:'' };
+    const comment = String(act.comments || '').trim();
+    // If this month is exactly a marker, ensure aux is false per rule 9
+    if(comment === 'Inicio Precursorado Regular' || comment === 'Fin Precursorado Regular'){
+      act.aux = false;
+      // If it's an Inicio, begin exception (this month is part of the exception)
+      if(comment === 'Inicio Precursorado Regular'){
+        insideException = true;
+      } else if(comment === 'Fin Precursorado Regular'){
+        // Fin: this month is last with exception, then exit after it
+        insideException = false;
+      }
+      p.activities[mk] = act;
+      continue;
+    }
+    // If currently inside an exception range, this month must have aux=false
+    if(insideException){
+      act.aux = false;
+      p.activities[mk] = act;
+      continue;
+    }
+    // Normal behavior: aux active when hours numeric > 1, otherwise false
+    const hstr = (act.hours === undefined || act.hours === null) ? '' : String(act.hours).trim();
+    const hnum = hstr === '' ? NaN : Number(hstr);
+    if(!isNaN(hnum) && hnum > 1){
+      act.aux = true;
+    } else {
+      act.aux = false;
+    }
+    p.activities[mk] = act;
+  }
+  try{ save(); }catch(e){}
 }
 
 /* Events */
@@ -3336,11 +3372,6 @@ actividadBtn.addEventListener('click', () => {
   // visually indicate active state
   actividadBtn.classList.toggle('active', activityMode);
   if(registroBtn) registroBtn.classList.toggle('active', !activityMode);
-
-  // add class to table to allow CSS targeting of activity-mode specific cells
-  const peopleTable = document.getElementById('peopleTable');
-  if(peopleTable) peopleTable.classList.add('activity-mode');
-
   updateOptionsBar();
   render(searchInput.value);
 });
@@ -3351,11 +3382,6 @@ if(registroBtn){
     activityMode = false;
     registroBtn.classList.toggle('active', !activityMode);
     if(actividadBtn) actividadBtn.classList.toggle('active', activityMode);
-
-    // remove activity-mode class from table when leaving Activity view
-    const peopleTable = document.getElementById('peopleTable');
-    if(peopleTable) peopleTable.classList.remove('activity-mode');
-
     updateOptionsBar();
     render(searchInput.value);
   });
@@ -3773,6 +3799,8 @@ form.addEventListener('submit', e => {
       // preserve existing activities when editing
       const prev = people[i].activities || {};
       people[i] = { id, ...record, activities: prev };
+      // Re-evaluate Aux. Mes rules for this person when their designation or data changed
+      try { reconcileAuxForPerson(people[i]); } catch(e){}
     }
   } else {
     people.push({ id: uid(), ...record });
@@ -4042,6 +4070,8 @@ tbody.addEventListener('dblclick', (e) => {
     // preserve activities
     updated.activities = person.activities || {};
     people[pIndex] = { id, ...updated };
+    // Reconcile Aux. Mes for the edited person after inline edits (designation changes or other edits)
+    try { reconcileAuxForPerson(people[pIndex]); } catch(e){}
     save();
     // remove inline editors and re-render to refresh table
     tr.classList.remove('inline-editing');

@@ -480,8 +480,8 @@ body{
   font-weight: 700;
 }
 
-/* In Activity mode, hovering the Designación column indicates editability by turning text red */
-#peopleTable.activity-mode td.designation-cell:hover {
+/* Activity-only editable hint: Designación cell turns red on hover to indicate editability in Actividad panel */
+#peopleTable.activity-view td.designation-cell:hover {
   color: var(--danger);
   cursor: pointer;
   transition: color .12s ease;
