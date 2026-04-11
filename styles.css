@@ -36,6 +36,11 @@ body{
   width:100%;
   max-width:none;
   padding:0 20px;
+  /* make app fill available viewport and layout in column so header/toolbars remain fixed
+     while the records area can scroll independently */
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 40px); /* account for body padding so overall fits the viewport */
 }
 
 /* Banner above toolbar */
@@ -270,7 +275,11 @@ body{
   border-radius:var(--radius);
   padding:12px;
   box-shadow: 0 10px 30px rgba(16,24,40,0.06);
-  overflow:auto;
+  /* make the records region expand inside the app column and be the only scrollable area */
+  flex: 1 1 auto;
+  min-height: 0; /* allow flex child to shrink so overflow works on all browsers */
+  overflow: auto;
+  position: relative; /* ensure sticky thead is positioned relative to this scrolling container */
   width:100%;
   border:1px solid var(--subtle);
 }
@@ -306,9 +315,12 @@ body{
   color:var(--muted);
   padding:14px;
   border-bottom:1px solid var(--subtle);
-  position:sticky;
-  top:0;
-  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(250,250,251,0.96));
+  position: sticky;    /* keep header row fixed inside the scrolling .table-wrapper */
+  top: 0;
+  z-index: 10;         /* ensure header sits above table rows and floating controls */
+  background: #ffffff; /* solid background to prevent content showing through while scrolling */
+  /* keep the subtle gradient for visual continuity via pseudo-layer if needed */
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(250,250,251,0.96));
   white-space:normal;
   overflow:visible;
   text-overflow:clip;
@@ -487,6 +499,17 @@ body{
   transition: color .12s ease;
 }
 
+/* In Activity view, make the "Fecha" month input text blue and bold for visual emphasis */
+#peopleTable.activity-view td .act-month,
+#peopleTable.activity-view td input.act-month {
+  color: var(--accent-strong);
+  font-weight: 700;
+  /* ensure the input inherits font and has no overly large default appearance */
+  font-family: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 /* Recent baptism age indicator (red until 1 year 6 months) */
 .age-recent{
   color: var(--danger);
@@ -641,6 +664,45 @@ body{
 
 /* keep the hidden helper */
 .hidden{display:none}
+
+/* Ensure header row remains fixed inside the scrolling .table-wrapper */
+.grid thead{
+  position: sticky;
+  top: 0;
+  z-index: 40; /* keep header above rows and floating controls */
+  /* solid background so content doesn't show through while scrolling */
+  background: #ffffff;
+  /* ensure the thead creates its own stacking context and can host a full-width overlay */
+  position: -webkit-sticky;
+  position: sticky;
+  /* make the thead element a containing block for its pseudo element */
+  display: table-header-group;
+  /* ensure it's on top of rows and floating controls */
+  isolation: isolate;
+}
+
+/* Create a full-width solid layer that extends to the top edge of the .table-wrapper
+   so rows never show through behind the header even when they scroll under it.
+   Extend the layer upward by the table-wrapper's vertical padding so the header visually
+   reaches the container's inner top edge and completely hides rows passing underneath. */
+.grid thead::before{
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* extend upward to cover the wrapper's internal top edge (wrapper padding = 12px) */
+  top: -12px;
+  bottom: 0;
+  background: var(--card);
+  pointer-events: none;
+  z-index: -1; /* sits behind header content but above table rows due to thead stacking context */
+}
+
+/* Keep header cells positioned normally (thead handles the stickiness) */
+.grid thead th{
+  position: relative;
+}
+
 .modal-content{
   width:100%;
   max-width:640px;

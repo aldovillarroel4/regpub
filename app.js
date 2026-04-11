@@ -1197,7 +1197,8 @@ function updateOptionsBar(){
         const label = document.createElement('div');
         label.textContent = 'Mes/Año:';
         label.style.fontSize = '13px';
-        label.style.color = 'var(--muted)';
+        // make the label blue and bold per UI requirement
+        label.style.color = 'var(--accent-strong)';
         label.style.fontWeight = '700';
 
         const monthInput = document.createElement('input');
@@ -1213,7 +1214,9 @@ function updateOptionsBar(){
         monthInput.style.borderRadius = '8px';
         monthInput.style.border = '1px solid var(--subtle)';
         monthInput.style.background = '#fff';
-        monthInput.style.color = 'var(--text)';
+        // make the displayed month text blue and bold to match the label
+        monthInput.style.color = 'var(--accent-strong)';
+        monthInput.style.fontWeight = '700';
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'icon-btn';
@@ -1744,7 +1747,8 @@ function updateOptionsBar(){
         const monthLabel = document.createElement('div');
         monthLabel.textContent = 'Mes/Año:';
         monthLabel.style.fontSize = '13px';
-        monthLabel.style.color = 'var(--muted)';
+        // make the Asistencia panel month label blue and bold per UI requirement
+        monthLabel.style.color = 'var(--accent-strong)';
         monthLabel.style.fontWeight = '700';
 
         const monthInput = document.createElement('input');
@@ -1760,7 +1764,9 @@ function updateOptionsBar(){
         monthInput.style.borderRadius = '8px';
         monthInput.style.border = '1px solid var(--subtle)';
         monthInput.style.background = '#fff';
-        monthInput.style.color = 'var(--text)';
+        // make the month input text blue and bold to match the label
+        monthInput.style.color = 'var(--accent-strong)';
+        monthInput.style.fontWeight = '700';
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'icon-btn';
@@ -2435,13 +2441,16 @@ function updateOptionsBar(){
 
     bar.appendChild(wrap);
   } else {
-    // Registry: add "Borrar Selección" red button
+    // Registry: add "Borrar Selección" / "Borrar Todo" red button (label depends on whether a row is selected)
     bar.classList.add('has-registry-actions');
+
+    // determine initial label based on current selection
+    const selExists = !!tbody.querySelector('tr.selected');
     const btn = document.createElement('button');
     btn.id = 'clearSelectionBtn';
     btn.className = 'danger';
-    btn.textContent = 'Borrar Selección';
-    btn.title = 'Borrar el registro seleccionado';
+    btn.textContent = selExists ? 'Borrar Selección' : 'Borrar Todo';
+    btn.title = selExists ? 'Borrar el registro seleccionado' : 'Borrar todo el registro';
     btn.addEventListener('click', () => {
       const sel = tbody.querySelector('tr.selected');
       // If no selection, ask whether to delete ALL records
@@ -3133,14 +3142,14 @@ function updateOptionsBar(){
             function onPointerMove(ev){
               const dx = ev.clientX - startX;
               const desiredW = Math.max(60, Math.round(startW + dx));
-              // Apply the same width to all columns to keep uniform widths
-              columns.forEach(c => {
-                c.col.style.width = desiredW + 'px';
-                c.col.style.minWidth = desiredW + 'px';
-                c.col.style.maxWidth = desiredW + 'px';
-              });
-              // recalc total and adjust card width to fit all columns (uniform)
-              const currentTotal = columns.length * desiredW;
+              // Apply width only to the dragged column so other columns keep their sizes
+              cObj.col.style.width = desiredW + 'px';
+              cObj.col.style.minWidth = desiredW + 'px';
+              cObj.col.style.maxWidth = desiredW + 'px';
+              cObj.computedWidth = desiredW;
+
+              // recalc total width from all columns and adjust card width to fit content
+              const currentTotal = columns.reduce((acc, c) => acc + (parseInt(c.col.style.width || c.computedWidth || '0', 10) || 0), 0);
               const newDesired = currentTotal + totalGaps + cardExtra;
               const newFinal = Math.min(newDesired, Math.floor(window.innerWidth - 40));
               card.style.width = newFinal + 'px';
@@ -3150,10 +3159,12 @@ function updateOptionsBar(){
               document.removeEventListener('pointerup', onPointerUp);
               document.documentElement.style.cursor = '';
               try{ resizer.releasePointerCapture && resizer.releasePointerCapture(e.pointerId); }catch(_){}
-              // persist uniform width for all columns
+              // persist per-column widths
               try{
-                const widthVal = parseInt(cObj.col.style.width || '0',10) || 0;
-                const widths = columns.map(() => widthVal);
+                const widths = columns.map(c => {
+                  const w = parseInt(String(c.col.style.width || c.computedWidth || '0').replace('px',''), 10) || 0;
+                  return w;
+                });
                 localStorage.setItem(GROUP_COLS_KEY, JSON.stringify(widths));
               }catch(err){}
             }
@@ -4161,8 +4172,35 @@ function initResizableColumns(){
     }
   }
 
+  // IMPORTANT: To ensure each column in Activity mode resizes independently without
+  // redistributing space to other columns, freeze each <col>'s width to a computed
+  // pixel value before enabling pointer-based resizing. This prevents the browser
+  // from auto-adjusting sibling columns during a drag.
+  if(activityMode){
+    // compute current widths and set explicit pixel widths for all cols present
+    for(let i=0;i<cols.children.length;i++){
+      const c = cols.children[i];
+      // If width is already specified as px, leave it; otherwise compute current width
+      const cur = c.getBoundingClientRect().width;
+      if(cur && cur > 0){
+        c.style.width = Math.round(cur) + 'px';
+        c.style.minWidth = c.style.width;
+        c.style.maxWidth = c.style.width;
+      }
+    }
+    // ensure table-layout remains 'fixed' to respect explicit col widths
+    table.style.tableLayout = 'fixed';
+  } else {
+    // In registry mode allow normal flexible behaviour (but keep table-layout fixed for stability)
+    table.style.tableLayout = 'fixed';
+  }
+
   ths.forEach((th, idx) => {
     th.style.position = 'relative';
+    // remove any existing handle to avoid duplicates
+    const existingHandle = th.querySelector('.th-resizer');
+    if(existingHandle) existingHandle.remove();
+
     const handle = document.createElement('div');
     handle.className = 'th-resizer';
     handle.setAttribute('data-index', idx);
@@ -4173,21 +4211,25 @@ function initResizableColumns(){
     let colEl = cols.children[idx];
     handle.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      handle.setPointerCapture(e.pointerId);
+      handle.setPointerCapture && handle.setPointerCapture(e.pointerId);
       startX = e.clientX;
+      // read current computed width and lock it as starting width
       startWidth = colEl.getBoundingClientRect().width;
       document.documentElement.style.cursor = 'col-resize';
 
       function onPointerMove(ev){
         const dx = ev.clientX - startX;
-        const newWidth = Math.max(40, startWidth + dx);
+        const newWidth = Math.max(40, Math.round(startWidth + dx));
+        // Apply width only to the dragged column so other columns keep their sizes
         colEl.style.width = newWidth + 'px';
+        colEl.style.minWidth = newWidth + 'px';
+        colEl.style.maxWidth = newWidth + 'px';
       }
       function onPointerUp(ev){
         document.removeEventListener('pointermove', onPointerMove);
         document.removeEventListener('pointerup', onPointerUp);
         document.documentElement.style.cursor = '';
-        try{ handle.releasePointerCapture(e.pointerId); }catch(_){}
+        try{ handle.releasePointerCapture && handle.releasePointerCapture(e.pointerId); }catch(_){}
         // persist widths after finishing resize
         saveColWidths();
       }
