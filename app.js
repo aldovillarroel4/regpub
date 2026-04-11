@@ -1303,7 +1303,7 @@ function updateOptionsBar(){
         pubRow.style.marginTop = '6px';
 
         const pubDesc = document.createElement('div');
-        pubDesc.innerHTML = '<div style="font-weight:700;color:var(--muted);font-size:13px;">Publicadores</div><div style="color:var(--muted);font-size:12px;">(Personas con horas ≥1 en el mes seleccionado que NO son Precursor Regular y NO tienen Aux. Mes activado)</div>';
+        pubDesc.innerHTML = '<div style="font-weight:700;color:var(--muted);font-size:13px;">Publicadores</div><div style="color:var(--muted);font-size:12px;">(Personas que tengan un 1 en "Horas" en el mes seleccionado)</div>';
 
         // subindicator container (two small stat boxes)
         const pubStats = document.createElement('div');
@@ -1508,14 +1508,11 @@ function updateOptionsBar(){
             if(!p.activities) return;
             const act = p.activities[sel];
             if(!act) return;
-            // must not be Precursor Regular
-            if(String(p.designation || '').trim() === 'Precursor Regular') return;
-            // Aux. Mes must NOT be active (false/undefined)
-            if(!!act.aux) return;
-            // hours must be numeric and >= 1
+            // New rule: count as "Publicador" only when the Hours value is exactly 1 in the selected month,
+            // regardless of designation or Aux. Mes.
             const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
-            const h = Number(hoursStr);
-            if(hoursStr !== '' && !isNaN(h) && h >= 1){
+            const hNum = hoursStr === '' ? NaN : Number(hoursStr);
+            if ((hoursStr === '1') || (!isNaN(hNum) && hNum === 1)) {
               count++;
               // accumulate studies (Estudios) as numeric when possible
               const studiesStr = (act.studies !== undefined && act.studies !== null) ? String(act.studies).trim() : '';
