@@ -3998,7 +3998,7 @@ tbody.addEventListener('dblclick', (e) => {
       editor.value = current || '';
     } else if(key === 'privilege'){
       editor = document.createElement('select');
-      ['','Publicador','Anciano','Siervo Ministerial','Fuera','Inactivo'].forEach(v => {
+      ['','Publicador','Anciano','Siervo Ministerial','Traslado','Fuera','Inactivo'].forEach(v => {
         const o = document.createElement('option'); o.value = v; o.textContent = v || '-';
         if(String(v) === String(current)) o.selected = true;
         editor.appendChild(o);
