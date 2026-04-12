@@ -101,7 +101,7 @@ function uid(){
 /* column mapping in table order for sorting (only used in registry view) */
 const COLUMN_KEYS = [
   'congName', 'firstName', 'lastNameP', 'lastNameM', 'group', 'privilege',
-  'designation', 'sex', 'esp', 'birthDate', 'baptismDate', 'address', 'phone', 'emergencyContact'
+  'designation', 'sex', 'esp', 'birthDate', 'baptismDate', 'address', 'phone', 'emergencyContact', 'notes'
 ];
 
 // Activity view column keys (used for per-column filtering in activity mode)
@@ -249,10 +249,11 @@ function render(filter=''){
       <th>Dirección <button class="col-filter" data-idx="11" title="Filtrar columna">🔍</button></th>
       <th>Teléfono <button class="col-filter" data-idx="12" title="Filtrar columna">🔍</button></th>
       <th>Contacto Emergencia <button class="col-filter" data-idx="13" title="Filtrar columna">🔍</button></th>
+      <th>Notas <button class="col-filter" data-idx="14" title="Filtrar columna">🔍</button></th>
     `;
     // restore original colgroup sizing if none persisted
     colgroup.innerHTML = '';
-    const original = ['160px','140px','160px','140px','100px','110px','140px','64px','64px','120px','120px','220px','120px','180px'];
+    const original = ['160px','140px','160px','140px','100px','110px','140px','64px','64px','120px','120px','220px','120px','180px','100px'];
     original.forEach(w => {
       const c = document.createElement('col');
       c.style.width = w;
@@ -367,7 +368,7 @@ function render(filter=''){
   if(list.length === 0){
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = activityMode ? 9 : 14;
+    td.colSpan = activityMode ? 9 : 15;
     td.style.padding = '20px';
     td.style.textAlign = 'center';
     td.style.color = '#9aa0a6';
@@ -510,6 +511,7 @@ function render(filter=''){
           <td>${escapeHtml(p.address || '')}</td>
           <td>${escapeHtml(p.phone || '')}</td>
           <td>${escapeHtml(p.emergencyContact || '')}</td>
+          <td><button class="note-btn ${p.notes ? 'note-present' : ''}" title="Notas">${p.notes ? '⚠️' : '📝'}</button></td>
         `;
       }
 
@@ -1478,6 +1480,20 @@ function updateOptionsBar(){
           return res; // newest-first (end month first), but membership doesn't depend on order
         }
 
+        // helper: returns true when the given monthKey has at least one person with Hours >= 1
+        function monthHasRecords(monthKey){
+          if(!monthKey) return false;
+          for(const p of people){
+            if(!p.activities) continue;
+            const act = p.activities[monthKey];
+            if(!act) continue;
+            const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+            const n = Number(hoursStr);
+            if(hoursStr !== '' && !isNaN(n) && n >= 1) return true;
+          }
+          return false;
+        }
+
         // compute and render Total Activos based on selected month
         function computeTotalActivos(selectedMonth){
           const months = lastNMonths(selectedMonth, 6);
@@ -1586,6 +1602,33 @@ function updateOptionsBar(){
           const sel = monthInput.value || new Date().toISOString().slice(0,7);
           const total = computeTotalActivos(sel);
           valueBox.textContent = String(total);
+
+          // show small badge if any of the checked last-6-months are "mes sin registros" (all people 0 hours)
+          try {
+            // remove existing badge if any
+            let badge = valueBox.parentNode.querySelector('#jw_no_records_badge');
+            const monthsChecked = lastNMonths(sel, 6);
+            const noRecordMonths = monthsChecked.filter(mk => !monthHasRecords(mk));
+            if(!badge && noRecordMonths.length > 0){
+              badge = document.createElement('div');
+              badge.id = 'jw_no_records_badge';
+              badge.style.marginLeft = '8px';
+              badge.style.display = 'inline-flex';
+              badge.style.alignItems = 'center';
+              badge.style.padding = '6px 8px';
+              badge.style.borderRadius = '8px';
+              badge.style.background = 'linear-gradient(180deg, rgba(220,220,220,0.18), rgba(220,220,220,0.10))';
+              badge.style.border = '1px solid rgba(200,200,200,0.18)';
+              badge.style.fontSize = '12px';
+              badge.style.color = 'var(--muted)';
+              badge.textContent = `${noRecordMonths.length} mes(es) sin registros`;
+              valueBox.parentNode.appendChild(badge);
+            } else if(badge && noRecordMonths.length === 0){
+              badge.remove();
+            } else if(badge && noRecordMonths.length > 0){
+              badge.textContent = `${noRecordMonths.length} mes(es) sin registros`;
+            }
+          } catch(e){ /* ignore UI badge errors */ }
 
           // update Publicadores "Cantidad de informes" and "Cursos Bíblicos"
           try {
@@ -2372,6 +2415,746 @@ function updateOptionsBar(){
       // append both buttons
       wrap.appendChild(reportBtn);
       wrap.appendChild(asistenciaBtn);
+
+      // Totales button: placed immediately to the right of Asistencia
+      const totalesBtn = document.createElement('button');
+      totalesBtn.className = 'secondary';
+      totalesBtn.textContent = 'Totales';
+      totalesBtn.title = 'Mostrar totales rápidos';
+      totalesBtn.style.marginLeft = '8px';
+      totalesBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const existingT = document.getElementById('totalesPanel');
+        if (existingT) { existingT.remove(); return; }
+
+        const panel = document.createElement('div');
+        panel.id = 'totalesPanel';
+        panel.style.position = 'fixed';
+        panel.style.left = '0';
+        panel.style.top = '0';
+        panel.style.right = '0';
+        panel.style.bottom = '0';
+        panel.style.display = 'flex';
+        panel.style.alignItems = 'center';
+        panel.style.justifyContent = 'center';
+        panel.style.background = 'rgba(15,23,42,0.3)';
+        panel.style.zIndex = '170';
+        panel.style.padding = '18px';
+
+        // Larger card to show the requested indicators clearly (wider and taller)
+        const card = document.createElement('div');
+        // make the card noticeably wider and taller so indicators sit comfortably at the top edge
+        card.style.width = 'min(1280px, 96vw)';
+        card.style.maxHeight = '92vh';
+        card.style.height = 'min(85vh, 92vh)';
+        card.style.background = 'var(--card)';
+        card.style.border = '1px solid var(--subtle)';
+        card.style.borderRadius = '12px';
+        card.style.boxShadow = '0 24px 60px rgba(16,24,40,0.18)';
+        // allow the body area to scroll while keeping the top strip pinned
+        card.style.overflow = 'hidden';
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+        card.style.padding = '0'; // we will let the topStrip sit flush to the card edge
+        card.style.gap = '0';
+
+        // Header area (kept minimal because indicators are grouped right below and pinned)
+        const hdr = document.createElement('div');
+        hdr.style.display = 'flex';
+        hdr.style.alignItems = 'center';
+        hdr.style.justifyContent = 'space-between';
+        hdr.style.padding = '12px 18px';
+        hdr.style.borderBottom = '1px solid var(--subtle)';
+        const title = document.createElement('div');
+        title.textContent = 'Totales';
+        title.style.fontWeight = '800';
+        title.style.fontSize = '18px';
+        const closeX = document.createElement('button');
+        closeX.className = 'icon-btn';
+        closeX.innerHTML = '&times;';
+        closeX.title = 'Cerrar';
+        closeX.style.fontSize = '20px';
+        closeX.addEventListener('click', () => panel.remove());
+        hdr.appendChild(title);
+        hdr.appendChild(closeX);
+        card.appendChild(hdr);
+
+        // Compact strip at the top with small stat cards grouped together
+        const topStrip = document.createElement('div');
+        // pin the strip to the top edge of the card so the indicators always appear grouped at the top
+        topStrip.style.position = 'sticky';
+        topStrip.style.top = '0';
+        topStrip.style.zIndex = '12';
+        topStrip.style.display = 'flex';
+        topStrip.style.flexWrap = 'wrap';
+        topStrip.style.gap = '10px';
+        topStrip.style.alignItems = 'flex-start';
+        topStrip.style.justifyContent = 'flex-start';
+        topStrip.style.padding = '12px 18px';
+        topStrip.style.borderBottom = '1px solid var(--subtle)';
+        topStrip.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.98))';
+
+        // Helper to create a smaller stat card (compact)
+        function statCard(label, valueId){
+          const wrap = document.createElement('div');
+          wrap.style.background = '#fff';
+          wrap.style.border = '1px solid var(--subtle)';
+          wrap.style.borderRadius = '10px';
+          // smaller padding to make cards compact
+          wrap.style.padding = '8px 10px';
+          wrap.style.display = 'flex';
+          wrap.style.flexDirection = 'column';
+          wrap.style.gap = '6px';
+          // allow each card to grow equally so seven cards distribute evenly across the strip
+          wrap.style.flex = '1 1 0';
+          wrap.style.minWidth = '0';
+          wrap.style.boxSizing = 'border-box';
+          wrap.style.textAlign = 'left';
+
+          const lbl = document.createElement('div');
+          lbl.textContent = label;
+          lbl.style.color = 'var(--muted)';
+          lbl.style.fontSize = '12px';
+          lbl.style.fontWeight = '700';
+
+          const val = document.createElement('div');
+          val.id = valueId;
+          val.textContent = '0';
+          // smaller number size but bold for emphasis
+          val.style.fontSize = '20px';
+          val.style.fontWeight = '800';
+          val.style.color = 'var(--text)';
+          // align number on the right edge inside each flex cell
+          val.style.marginLeft = 'auto';
+
+          wrap.appendChild(lbl);
+          wrap.appendChild(val);
+          return wrap;
+        }
+
+        // Create requested indicators as compact cards grouped in topStrip
+        const indicators = [
+          { label: 'Activos', id: 'totales_activos' },
+          { label: 'Ancianos', id: 'totales_ancianos' },
+          { label: 'Siervos Ministeriales', id: 'totales_siervos' },
+          { label: 'Precursores Regulares', id: 'totales_precursores_reg' },
+          { label: 'Prec. Aux. Indef.', id: 'totales_precursores_aux' },
+          { label: 'Irregulares', id: 'totales_irregulares' },
+          { label: 'Inactivos', id: 'totales_inactivos' }
+        ];
+
+        // Append cards; make "Activos" and "Ancianos" cards clickable buttons that toggle a dropdown list
+        indicators.forEach(ind => {
+          if(ind.id === 'totales_activos' || ind.id === 'totales_ancianos' || ind.id === 'totales_siervos' || ind.id === 'totales_precursores_reg' || ind.id === 'totales_precursores_aux' || ind.id === 'totales_irregulares' || ind.id === 'totales_inactivos'){
+            // build the stat card but wrap it as a button so entire card is clickable
+            const cardEl = statCard(ind.label, ind.id);
+            const btn = document.createElement('button');
+            btn.className = 'secondary';
+            btn.style.border = '0';
+            btn.style.background = 'transparent';
+            btn.style.padding = '0';
+            btn.style.margin = '0';
+            btn.style.width = '100%';
+            btn.style.textAlign = 'left';
+            // transfer card contents into button
+            btn.appendChild(cardEl);
+            // create dropdown container (hidden by default)
+            const listPanel = document.createElement('div');
+            listPanel.id = ind.id + '_list';
+            listPanel.style.position = 'absolute';
+            listPanel.style.zIndex = '9999';
+            listPanel.style.background = '#fff';
+            listPanel.style.border = '1px solid var(--subtle)';
+            listPanel.style.borderRadius = '8px';
+            listPanel.style.boxShadow = '0 12px 30px rgba(16,24,40,0.08)';
+            listPanel.style.padding = '8px';
+            listPanel.style.minWidth = '220px';
+            listPanel.style.maxHeight = '320px';
+            listPanel.style.overflow = 'auto';
+            listPanel.classList.add('hidden');
+
+            // change visual state on hover: adjust stat card background and number color
+            btn.addEventListener('mouseenter', () => {
+              try{
+                // slightly stronger blue background on hover
+                cardEl.style.background = 'linear-gradient(180deg, rgba(11,102,255,0.08), rgba(11,102,255,0.03))';
+                // make the numeric value use accent color for emphasis
+                const valEl = document.getElementById(ind.id);
+                if(valEl) valEl.style.color = 'var(--accent-strong)';
+              }catch(e){}
+            });
+            btn.addEventListener('mouseleave', () => {
+              try{
+                // restore default appearance
+                cardEl.style.background = '#fff';
+                const valEl = document.getElementById(ind.id);
+                if(valEl) valEl.style.color = 'var(--text)';
+              }catch(e){}
+            });
+
+            // toggle handler: compute members and show alphabetized list
+            btn.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              // close any existing similar panel first
+              const existing = document.getElementById(ind.id + '_list');
+              if (existing && existing !== listPanel) existing.remove();
+
+              // build list items
+              listPanel.innerHTML = '';
+
+              if(ind.id === 'totales_activos'){
+                const endRef = new Date().toISOString().slice(0,7);
+                const monthsToCheck = (function(endMonthKey, n){
+                  const res = [];
+                  let y,m;
+                  if(!endMonthKey || !/^\d{4}-\d{2}$/.test(endMonthKey)){
+                    const now = new Date();
+                    y = now.getFullYear(); m = now.getMonth() + 1;
+                  } else {
+                    const parts = endMonthKey.split('-').map(Number);
+                    y = parts[0]; m = parts[1];
+                  }
+                  for(let i=0;i<n;i++){
+                    res.push(`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`);
+                    m--;
+                    if(m < 1){ m = 12; y--; }
+                  }
+                  return res;
+                })(endRef, 6);
+
+                // collect ids and names
+                const members = [];
+                people.forEach(p => {
+                  if(!p.activities) return;
+                  const priv = String(p.privilege || '').trim();
+                  if(priv === 'Inactivo' || priv === 'Traslado' || priv === 'Fuera') return;
+                  for(const mk of monthsToCheck){
+                    const act = p.activities[mk];
+                    if(!act) continue;
+                    const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+                    const n = Number(hoursStr);
+                    if(hoursStr !== '' && !isNaN(n) && n >= 1){
+                      const name = (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim();
+                      members.push(name);
+                      break;
+                    }
+                  }
+                });
+
+                // sort alphabetically (locale 'es')
+                members.sort((a,b) => a.localeCompare(b,'es'));
+
+                // render list content
+                if(members.length === 0){
+                  const empty = document.createElement('div');
+                  empty.style.padding = '8px';
+                  empty.style.color = 'var(--muted)';
+                  empty.textContent = 'No hay personas en este total.';
+                  listPanel.appendChild(empty);
+                } else {
+                  members.forEach(name => {
+                    const it = document.createElement('div');
+                    it.style.padding = '6px 8px';
+                    it.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
+                    it.style.fontSize = '13px';
+                    it.style.color = 'var(--text)';
+                    it.textContent = name;
+                    listPanel.appendChild(it);
+                  });
+                }
+              } else if(ind.id === 'totales_ancianos'){
+                // Ancianos: list all people whose privilege === 'Anciano'
+                const ancianos = people
+                  .filter(p => String(p.privilege || '').trim() === 'Anciano')
+                  .map(p => (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim());
+                ancianos.sort((a,b) => a.localeCompare(b,'es'));
+                if(ancianos.length === 0){
+                  const empty = document.createElement('div');
+                  empty.style.padding = '8px';
+                  empty.style.color = 'var(--muted)';
+                  empty.textContent = 'No hay ancianos registrados.';
+                  listPanel.appendChild(empty);
+                } else {
+                  ancianos.forEach(name => {
+                    const it = document.createElement('div');
+                    it.style.padding = '6px 8px';
+                    it.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
+                    it.style.fontSize = '13px';
+                    it.style.color = 'var(--text)';
+                    it.textContent = name;
+                    listPanel.appendChild(it);
+                  });
+                }
+              } else if(ind.id === 'totales_siervos'){
+                // Siervos Ministeriales: list all people whose privilege === 'Siervo Ministerial'
+                const siervos = people
+                  .filter(p => String(p.privilege || '').trim() === 'Siervo Ministerial')
+                  .map(p => (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim());
+                siervos.sort((a,b) => a.localeCompare(b,'es'));
+                if(siervos.length === 0){
+                  const empty = document.createElement('div');
+                  empty.style.padding = '8px';
+                  empty.style.color = 'var(--muted)';
+                  empty.textContent = 'No hay siervos ministeriales registrados.';
+                  listPanel.appendChild(empty);
+                } else {
+                  siervos.forEach(name => {
+                    const it = document.createElement('div');
+                    it.style.padding = '6px 8px';
+                    it.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
+                    it.style.fontSize = '13px';
+                    it.style.color = 'var(--text)';
+                    it.textContent = name;
+                    listPanel.appendChild(it);
+                  });
+                }
+              } else if(ind.id === 'totales_inactivos'){
+                // Inactivos: list all people whose privilege === 'Inactivo'
+                const inactivos = people
+                  .filter(p => String(p.privilege || '').trim() === 'Inactivo')
+                  .map(p => (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim());
+                inactivos.sort((a,b) => a.localeCompare(b,'es'));
+                if(inactivos.length === 0){
+                  const empty = document.createElement('div');
+                  empty.style.padding = '8px';
+                  empty.style.color = 'var(--muted)';
+                  empty.textContent = 'No hay inactivos registrados.';
+                  listPanel.appendChild(empty);
+                } else {
+                  inactivos.forEach(name => {
+                    const it = document.createElement('div');
+                    it.style.padding = '6px 8px';
+                    it.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
+                    it.style.fontSize = '13px';
+                    it.style.color = 'var(--text)';
+                    it.textContent = name;
+                    listPanel.appendChild(it);
+                  });
+                }
+              } else if(ind.id === 'totales_precursores_reg'){
+                // Precursores Regulares: list all people whose designation === 'Precursor Regular'
+                const precReg = people
+                  .filter(p => String(p.designation || '').trim() === 'Precursor Regular')
+                  .map(p => (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim());
+                precReg.sort((a,b) => a.localeCompare(b,'es'));
+                if(precReg.length === 0){
+                  const empty = document.createElement('div');
+                  empty.style.padding = '8px';
+                  empty.style.color = 'var(--muted)';
+                  empty.textContent = 'No hay precursores regulares registrados.';
+                  listPanel.appendChild(empty);
+                } else {
+                  precReg.forEach(name => {
+                    const it = document.createElement('div');
+                    it.style.padding = '6px 8px';
+                    it.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
+                    it.style.fontSize = '13px';
+                    it.style.color = 'var(--text)';
+                    it.textContent = name;
+                    listPanel.appendChild(it);
+                  });
+                }
+              } else if(ind.id === 'totales_precursores_aux'){
+                // Precursores Auxiliares: list all people whose designation === 'Precursor Auxiliar'
+                const precAux = people
+                  .filter(p => String(p.designation || '').trim() === 'Precursor Auxiliar')
+                  .map(p => (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim());
+                precAux.sort((a,b) => a.localeCompare(b,'es'));
+                if(precAux.length === 0){
+                  const empty = document.createElement('div');
+                  empty.style.padding = '8px';
+                  empty.style.color = 'var(--muted)';
+                  empty.textContent = 'No hay precursores auxiliares registrados.';
+                  listPanel.appendChild(empty);
+                } else {
+                  precAux.forEach(name => {
+                    const it = document.createElement('div');
+                    it.style.padding = '6px 8px';
+                    it.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
+                    it.style.fontSize = '13px';
+                    it.style.color = 'var(--text)';
+                    it.textContent = name;
+                    listPanel.appendChild(it);
+                  });
+                }
+              } else if(ind.id === 'totales_irregulares'){
+                // Irregulares: compute per rules and list matching congName alphabetically
+                try {
+                  // helper: last N months ending at given monthKey (newest-first)
+                  function lastNMonths(endMonthKey, n){
+                    const res = [];
+                    let y,m;
+                    if(!endMonthKey || !/^\d{4}-\d{2}$/.test(endMonthKey)){
+                      const now = new Date();
+                      y = now.getFullYear(); m = now.getMonth() + 1;
+                    } else {
+                      const parts = endMonthKey.split('-').map(Number);
+                      y = parts[0]; m = parts[1];
+                    }
+                    for(let i=0;i<n;i++){
+                      res.push(`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`);
+                      m--;
+                      if(m < 1){ m = 12; y--; }
+                    }
+                    return res;
+                  }
+                  // helper: whether a given monthKey is a "mes con registro" (at least one person has hours >=1)
+                  function monthHasRecordsGlobal(monthKey){
+                    if(!monthKey) return false;
+                    for(const p of people){
+                      if(!p.activities) continue;
+                      const act = p.activities[monthKey];
+                      if(!act) continue;
+                      const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+                      const n = Number(hoursStr);
+                      if(hoursStr !== '' && !isNaN(n) && n >= 1) return true;
+                    }
+                    return false;
+                  }
+
+                  const endRef = new Date().toISOString().slice(0,7);
+                  // collect the last 6 months that are "mes con registro" by scanning backwards until we have 6
+                  function lastNMonthsWithRecords(endMonthKey, n){
+                    const res = [];
+                    let y,m;
+                    if(!endMonthKey || !/^\d{4}-\d{2}$/.test(endMonthKey)){
+                      const now = new Date();
+                      y = now.getFullYear(); m = now.getMonth() + 1;
+                    } else {
+                      const parts = endMonthKey.split('-').map(Number);
+                      y = parts[0]; m = parts[1];
+                    }
+                    // iterate backwards month-by-month, collecting months that have records
+                    let checks = 0;
+                    while(res.length < n && checks < 60){
+                      const key = `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`;
+                      if(monthHasRecordsGlobal(key)) res.push(key);
+                      m--;
+                      if(m < 1){ m = 12; y--; }
+                      checks++;
+                    }
+                    // return chronological order (oldest first)
+                    return res.reverse();
+                  }
+                  const monthsWithRegistro = lastNMonthsWithRecords(endRef, 6);
+
+                  const members = [];
+                  people.forEach(p => {
+                    // skip if privilege is Fuera/Inactivo/Traslado
+                    const priv = String(p.privilege || '').trim();
+                    if(priv === 'Fuera' || priv === 'Inactivo' || priv === 'Traslado') return;
+                    if(monthsWithRegistro.length === 0) return;
+                    for(const mk of monthsWithRegistro){
+                      const act = (p.activities && p.activities[mk]) ? p.activities[mk] : null;
+                      const hoursStr = act && act.hours !== undefined && act.hours !== null ? String(act.hours).trim() : '';
+                      const hnum = hoursStr === '' ? NaN : Number(hoursStr);
+                      if(hoursStr === '' || (!isNaN(hnum) && hnum === 0)){
+                        const name = (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim();
+                        members.push(name);
+                        break;
+                      }
+                    }
+                  });
+                  // members currently holds name strings; sort alphabetically
+                  members.sort((a,b) => a.localeCompare(b,'es'));
+                  if(members.length === 0){
+                    const empty = document.createElement('div');
+                    empty.style.padding = '8px';
+                    empty.style.color = 'var(--muted)';
+                    empty.textContent = 'No hay personas en este total.';
+                    listPanel.appendChild(empty);
+                  } else {
+                    // For the Irregulares panel we want to display per-person the count of months-with-registro
+                    // where their Hours value is empty or 0. 'members' here contains names only, but we need counts.
+                    // To preserve existing behavior we recompute counts from people array by matching names.
+                    // Use the previously computed monthsWithRegistro (last 6 "mes con registros") to count per-person irregular months
+                  members.forEach(name => {
+                    // find person by matching congName or fallback by first+last
+                    const person = people.find(p => {
+                      const display = (p.congName && p.congName.trim()) ? p.congName.trim() : `${(p.firstName||'').trim()} ${(p.lastNameP||'').trim()}`.trim();
+                      return display === name;
+                    });
+                    let irregularCount = 0;
+                    if(person){
+                      // monthsWithRegistro was computed above for the indicator; reuse it here to count empty/0 hours
+                      (monthsWithRegistro || []).forEach(mk => {
+                        const act = (person.activities && person.activities[mk]) ? person.activities[mk] : null;
+                        const hoursStr = act && act.hours !== undefined && act.hours !== null ? String(act.hours).trim() : '';
+                        const hnum = hoursStr === '' ? NaN : Number(hoursStr);
+                        if(hoursStr === '' || (!isNaN(hnum) && hnum === 0)){
+                          irregularCount++;
+                        }
+                      });
+                    }
+                    const it = document.createElement('div');
+                    it.style.padding = '6px 8px';
+                    it.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
+                    it.style.fontSize = '13px';
+                    it.style.color = 'var(--text)';
+                    it.textContent = `${name} — ${irregularCount} mes(es)`;
+                    listPanel.appendChild(it);
+                  });
+                  }
+                } catch(err) {
+                  const empty = document.createElement('div');
+                  empty.style.padding = '8px';
+                  empty.style.color = 'var(--muted)';
+                  empty.textContent = 'Error calculando el listado.';
+                  listPanel.appendChild(empty);
+                }
+              }
+
+              // position the panel under the button (compute button rect)
+              if(!listPanel.isConnected) document.body.appendChild(listPanel);
+              const rect = btn.getBoundingClientRect();
+              listPanel.style.left = (rect.left + window.scrollX) + 'px';
+              listPanel.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+              listPanel.classList.toggle('hidden', false);
+
+              // clicking outside closes the panel
+              setTimeout(() => {
+                const onDocClick = (ev2) => {
+                  if(!listPanel) return;
+                  if(!listPanel.contains(ev2.target) && ev2.target !== btn && !btn.contains(ev2.target)){
+                    listPanel.remove();
+                    document.removeEventListener('click', onDocClick);
+                  }
+                };
+                document.addEventListener('click', onDocClick);
+              }, 0);
+            });
+
+            // wrapper to position button in the flex strip (button is block-level to match card sizing)
+            const wrapper = document.createElement('div');
+            wrapper.style.flex = '1 1 0';
+            wrapper.style.minWidth = '0';
+            wrapper.style.position = 'relative';
+            wrapper.appendChild(btn);
+            topStrip.appendChild(wrapper);
+          } else {
+            topStrip.appendChild(statCard(ind.label, ind.id));
+          }
+        });
+
+        card.appendChild(topStrip);
+
+        // Main content area below the top group (scrollable)
+        const bodyArea = document.createElement('div');
+        bodyArea.style.flex = '1 1 auto';
+        bodyArea.style.overflow = 'auto';
+        bodyArea.style.padding = '18px';
+        bodyArea.style.display = 'flex';
+        bodyArea.style.alignItems = 'flex-start';
+        bodyArea.style.justifyContent = 'flex-start';
+        bodyArea.style.gap = '12px';
+        // placeholder content (kept minimal)
+        const placeholder = document.createElement('div');
+        placeholder.style.flex = '1 1 auto';
+        placeholder.style.minHeight = '220px';
+        placeholder.style.borderRadius = '8px';
+        placeholder.style.background = 'transparent';
+        bodyArea.appendChild(placeholder);
+
+        card.appendChild(bodyArea);
+
+        // Footer with close
+        const footer = document.createElement('div');
+        footer.style.display = 'flex';
+        footer.style.justifyContent = 'flex-end';
+        footer.style.padding = '12px 18px';
+        footer.style.borderTop = '1px solid var(--subtle)';
+        footer.style.background = 'var(--card)';
+        const ok = document.createElement('button');
+        ok.className = 'secondary';
+        ok.textContent = 'Cerrar';
+        ok.addEventListener('click', () => panel.remove());
+        footer.appendChild(ok);
+        card.appendChild(footer);
+
+        panel.appendChild(card);
+        document.body.appendChild(panel);
+
+        // clicking outside card closes
+        panel.addEventListener('click', (ev) => { if(ev.target === panel) panel.remove(); });
+
+        // Compute and populate the "Activos" indicator (people with >=1 hours in any of last 6 months),
+        // keep other indicators at 0 for now.
+        try {
+          // helper: last N months ending at given monthKey (YYYY-MM)
+          function lastNMonths(endMonthKey, n){
+            const res = [];
+            let y,m;
+            if(!endMonthKey || !/^\d{4}-\d{2}$/.test(endMonthKey)){
+              const now = new Date();
+              y = now.getFullYear(); m = now.getMonth() + 1;
+            } else {
+              const parts = endMonthKey.split('-').map(Number);
+              y = parts[0]; m = parts[1];
+            }
+            for(let i=0;i<n;i++){
+              res.push(`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`);
+              m--;
+              if(m < 1){ m = 12; y--; }
+            }
+            return res;
+          }
+
+          // determine reference end month (use current month)
+          const endRef = new Date().toISOString().slice(0,7);
+          const monthsToCheck = lastNMonths(endRef, 6);
+          const setIds = new Set();
+          people.forEach(p => {
+            // Exclude persons without activities or with a privilege that should not be counted
+            if(!p.activities) return;
+            const priv = String(p.privilege || '').trim();
+            if(priv === 'Inactivo' || priv === 'Traslado' || priv === 'Fuera') return;
+            for(const mk of monthsToCheck){
+              const act = p.activities[mk];
+              if(!act) continue;
+              const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+              const n = Number(hoursStr);
+              if(hoursStr !== '' && !isNaN(n) && n >= 1){
+                setIds.add(p.id);
+                break;
+              }
+            }
+          });
+
+          document.getElementById('totales_activos').textContent = String(setIds.size);
+          // Compute Ancianos count: people whose privilege is exactly "Anciano"
+          try {
+            const ancianosCount = people.reduce((acc, p) => {
+              return acc + ((String(p.privilege || '').trim() === 'Anciano') ? 1 : 0);
+            }, 0);
+            document.getElementById('totales_ancianos').textContent = String(ancianosCount);
+          } catch(err) {
+            document.getElementById('totales_ancianos').textContent = '0';
+          }
+          // other indicators
+          try {
+            const siervosCount = people.reduce((acc, p) => acc + ((String(p.privilege || '').trim() === 'Siervo Ministerial') ? 1 : 0), 0);
+            document.getElementById('totales_siervos').textContent = String(siervosCount);
+          } catch (err) {
+            document.getElementById('totales_siervos').textContent = '0';
+          }
+          try {
+            const precursoresRegCount = people.reduce((acc, p) => {
+              return acc + ((String(p.designation || '').trim() === 'Precursor Regular') ? 1 : 0);
+            }, 0);
+            document.getElementById('totales_precursores_reg').textContent = String(precursoresRegCount);
+          } catch (err) {
+            document.getElementById('totales_precursores_reg').textContent = '0';
+          }
+          try {
+            // Count people with designation "Precursor Auxiliar" and show it in the Prec. Aux. Indef. card
+            const precursoresAuxCount = people.reduce((acc, p) => {
+              return acc + ((String(p.designation || '').trim() === 'Precursor Auxiliar') ? 1 : 0);
+            }, 0);
+            document.getElementById('totales_precursores_aux').textContent = String(precursoresAuxCount);
+          } catch (err) {
+            document.getElementById('totales_precursores_aux').textContent = '0';
+          }
+
+          // Compute "Irregulares" per rules:
+          // - exclude Privilegio Fuera / Inactivo / Traslado
+          // - consider last 6 months ending at current month; restrict to months that are "mes con registro" (i.e., month has at least one person with hours >=1)
+          // - a person is "irregular" if among those months-with-record, they have at least one month where their hours is 0 or empty
+          try {
+            // helper to get last N months (newest-first)
+            function lastNMonths(endMonthKey, n){
+              const res = [];
+              let y,m;
+              if(!endMonthKey || !/^\d{4}-\d{2}$/.test(endMonthKey)){
+                const now = new Date();
+                y = now.getFullYear(); m = now.getMonth() + 1;
+              } else {
+                const parts = endMonthKey.split('-').map(Number);
+                y = parts[0]; m = parts[1];
+              }
+              for(let i=0;i<n;i++){
+                res.push(`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`);
+                m--;
+                if(m < 1){ m = 12; y--; }
+              }
+              return res;
+            }
+
+            // helper: whether a given monthKey is a "mes con registros" (at least one person has hours >=1)
+            function monthHasRecordsGlobal(monthKey){
+              if(!monthKey) return false;
+              for(const p of people){
+                if(!p.activities) continue;
+                const act = p.activities[monthKey];
+                if(!act) continue;
+                const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+                const n = Number(hoursStr);
+                if(hoursStr !== '' && !isNaN(n) && n >= 1) return true;
+              }
+              return false;
+            }
+
+            const endRef = new Date().toISOString().slice(0,7);
+            // collect the last 6 months that are "mes con registro" by scanning backwards until we have 6
+            function lastNMonthsWithRecords(endMonthKey, n){
+              const res = [];
+              let y,m;
+              if(!endMonthKey || !/^\d{4}-\d{2}$/.test(endMonthKey)){
+                const now = new Date();
+                y = now.getFullYear(); m = now.getMonth() + 1;
+              } else {
+                const parts = endMonthKey.split('-').map(Number);
+                y = parts[0]; m = parts[1];
+              }
+              let checks = 0;
+              while(res.length < n && checks < 60){
+                const key = `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`;
+                if(monthHasRecordsGlobal(key)) res.push(key);
+                m--;
+                if(m < 1){ m = 12; y--; }
+                checks++;
+              }
+              return res.reverse();
+            }
+            const monthsWithRegistro = lastNMonthsWithRecords(endRef, 6);
+            const irregSet = new Set();
+
+            people.forEach(p => {
+              // skip if privilege is Fuera/Inactivo/Traslado
+              const priv = String(p.privilege || '').trim();
+              if(priv === 'Fuera' || priv === 'Inactivo' || priv === 'Traslado') return;
+
+              // if no activities, treat their months as empty (counts as 0 / empty) only if there is any monthsWithRegistro to evaluate
+              if(monthsWithRegistro.length === 0) return; // nothing to evaluate
+
+              // check if person has at least one of the monthsWithRegistro where hours is empty or 0
+              for(const mk of monthsWithRegistro){
+                const act = (p.activities && p.activities[mk]) ? p.activities[mk] : null;
+                const hoursStr = act && act.hours !== undefined && act.hours !== null ? String(act.hours).trim() : '';
+                // treat empty string or explicit '0' or numeric 0 as irregular occurrence
+                const hnum = hoursStr === '' ? NaN : Number(hoursStr);
+                if(hoursStr === '' || (!isNaN(hnum) && hnum === 0)){
+                  irregSet.add(p.id);
+                  break;
+                }
+              }
+            });
+
+            document.getElementById('totales_irregulares').textContent = String(irregSet.size);
+          } catch (err) {
+            document.getElementById('totales_irregulares').textContent = '0';
+          }
+
+          // Inactivos indicator (kept simple)
+          try {
+            const inactivosCount = people.reduce((acc, p) => acc + ((String(p.privilege || '').trim() === 'Inactivo') ? 1 : 0), 0);
+            document.getElementById('totales_inactivos').textContent = String(inactivosCount);
+          } catch (err) {
+            document.getElementById('totales_inactivos').textContent = '0';
+          }
+        } catch(e){}
+      });
+
+      wrap.appendChild(totalesBtn);
     }
 
     // show range selector button only when a search query is present
@@ -4164,36 +4947,42 @@ function initResizableColumns(){
     cols.appendChild(document.createElement('col'));
   }
 
-  // restore saved widths if any
+  // restore saved widths if any (apply after we establish explicit pixel sizes)
   const saved = loadColWidths();
-  if(saved && saved.length){
-    for(let i=0;i<cols.children.length && i<saved.length;i++){
-      if(saved[i]) cols.children[i].style.width = saved[i];
-    }
-  }
 
-  // IMPORTANT: To ensure each column in Activity mode resizes independently without
-  // redistributing space to other columns, freeze each <col>'s width to a computed
-  // pixel value before enabling pointer-based resizing. This prevents the browser
-  // from auto-adjusting sibling columns during a drag.
-  if(activityMode){
-    // compute current widths and set explicit pixel widths for all cols present
-    for(let i=0;i<cols.children.length;i++){
-      const c = cols.children[i];
-      // If width is already specified as px, leave it; otherwise compute current width
-      const cur = c.getBoundingClientRect().width;
-      if(cur && cur > 0){
-        c.style.width = Math.round(cur) + 'px';
-        c.style.minWidth = c.style.width;
-        c.style.maxWidth = c.style.width;
+  // To guarantee independent resizing per column in BOTH Registry and Activity modes,
+  // compute current pixel widths for each <col> and lock them as explicit widths
+  // (so dragging a resizer changes only that column).
+  for(let i=0;i<cols.children.length;i++){
+    const c = cols.children[i];
+    // prefer previously saved width if present and valid
+    if(saved && typeof saved[i] !== 'undefined' && saved[i]){
+      // if saved value is in px or percent, try to normalize to pixels by applying and measuring
+      c.style.width = saved[i];
+    } else {
+      // compute current width from table/rendered layout and set explicit px width
+      const computed = c.getBoundingClientRect().width;
+      if(computed && computed > 0){
+        c.style.width = Math.round(computed) + 'px';
+      } else {
+        // fallback to an explicit default if measurement failed
+        c.style.width = c.style.width || '120px';
       }
     }
-    // ensure table-layout remains 'fixed' to respect explicit col widths
-    table.style.tableLayout = 'fixed';
-  } else {
-    // In registry mode allow normal flexible behaviour (but keep table-layout fixed for stability)
-    table.style.tableLayout = 'fixed';
+    // lock the column to its explicit pixel width so siblings aren't resized by the browser
+    // (min/max mirror the width to keep it stable during pointerdrags)
+    const curW = c.style.width;
+    if(curW && curW.indexOf('px') === -1){
+      // if saved width was a percentage/other, measure actual px and set px style
+      const measured = c.getBoundingClientRect().width || parseInt(curW,10) || 120;
+      c.style.width = Math.round(measured) + 'px';
+    }
+    c.style.minWidth = c.style.width;
+    c.style.maxWidth = c.style.width;
   }
+
+  // keep table-layout fixed so the explicit <col> widths are honored
+  table.style.tableLayout = 'fixed';
 
   ths.forEach((th, idx) => {
     th.style.position = 'relative';
@@ -4213,8 +5002,8 @@ function initResizableColumns(){
       e.preventDefault();
       handle.setPointerCapture && handle.setPointerCapture(e.pointerId);
       startX = e.clientX;
-      // read current computed width and lock it as starting width
-      startWidth = colEl.getBoundingClientRect().width;
+      // read current computed width (px) and lock it as starting width
+      startWidth = colEl.getBoundingClientRect().width || (parseInt(colEl.style.width,10) || 120);
       document.documentElement.style.cursor = 'col-resize';
 
       function onPointerMove(ev){
@@ -4239,11 +5028,19 @@ function initResizableColumns(){
     });
   });
 
-  // also save widths when window is resized (to capture final layout)
+  // also save widths when window is resized (to capture final layout), debounce to avoid churn
   window.addEventListener('resize', () => {
-    // small debounce
     clearTimeout(window._saveColsTimeout);
-    window._saveColsTimeout = setTimeout(saveColWidths, 200);
+    window._saveColsTimeout = setTimeout(() => {
+      // re-measure current col widths (in px) and persist them
+      try{
+        const current = Array.from(cols.children).map(c => {
+          const w = c.getBoundingClientRect().width || parseInt(c.style.width || '0',10) || 0;
+          return (w ? String(Math.round(w)) + 'px' : '');
+        });
+        localStorage.setItem(getColsKey(), JSON.stringify(current));
+      }catch(e){}
+    }, 200);
   });
 }
 
@@ -5304,11 +6101,32 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-/* Info-icon handler for activity comment boxes:
-   When the info button inside .act-comments is clicked, show a small tab with two choices:
-   "Inicio Precursorado Regular" and "Fin Precursorado Regular". Selecting one will replace
-   the comment cell text with the chosen label (visible in the contenteditable box). */
-tbody.addEventListener('click', (e) => {
+/* Notes modal: open when clicking the small note icon in the "Notas" column,
+   allow editing a multiline note for the person and persist it on save. */
+document.addEventListener('click', (e) => {
+  const noteBtn = e.target.closest('.note-btn');
+  if (noteBtn) {
+    e.stopPropagation();
+    const tr = noteBtn.closest('tr');
+    if(!tr) return;
+    const id = tr.dataset.id;
+    const person = people.find(p => p.id === id);
+    if(!person) return;
+    // populate modal
+    const notesModal = document.getElementById('notesModal');
+    const notesTextarea = document.getElementById('notesTextarea');
+    const notesPersonName = document.getElementById('notesPersonName');
+    if(!notesModal || !notesTextarea || !notesPersonName) return;
+    notesPersonName.textContent = person.congName || ((person.firstName||'') + ' ' + (person.lastNameP||'')).trim();
+    notesTextarea.value = person.notes || '';
+    notesModal.dataset.personId = id;
+    notesModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    // focus textarea
+    setTimeout(()=> notesTextarea.focus(), 50);
+    return;
+  }
+
   const infoBtn = e.target.closest('.comment-info');
   if (!infoBtn) return;
   e.stopPropagation();
@@ -5391,6 +6209,86 @@ tbody.addEventListener('click', (e) => {
     };
     document.addEventListener('click', onDocClick);
   }, 0);
+});
+
+/* Notes modal handlers: save / cancel / close */
+const notesModalEl = document.getElementById('notesModal');
+const closeNotesBtn = document.getElementById('closeNotesModal');
+const cancelNotesBtn = document.getElementById('cancelNotesBtn');
+const saveNotesBtn = document.getElementById('saveNotesBtn');
+const notesTextareaEl = document.getElementById('notesTextarea');
+
+function closeNotesModal(){
+  const nm = document.getElementById('notesModal');
+  if(!nm) return;
+  nm.classList.add('hidden');
+  delete nm.dataset.personId;
+  document.body.style.overflow = '';
+}
+
+// Close handlers (some elements may not exist if code runs earlier)
+if(closeNotesBtn) closeNotesBtn.addEventListener('click', closeNotesModal);
+if(cancelNotesBtn) cancelNotesBtn.addEventListener('click', closeNotesModal);
+if(notesModalEl){
+  notesModalEl.addEventListener('click', (ev) => {
+    if(ev.target === notesModalEl) closeNotesModal();
+  });
+}
+if(saveNotesBtn){
+  saveNotesBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const nm = document.getElementById('notesModal');
+    if(!nm) return;
+    const pid = nm.dataset.personId;
+    if(!pid) { closeNotesModal(); return; }
+    const p = people.find(x => x.id === pid);
+    if(!p) { closeNotesModal(); return; }
+    const val = (notesTextareaEl && notesTextareaEl.value) ? notesTextareaEl.value.trim() : '';
+    p.notes = val;
+    save();
+    // update row icon color to indicate presence of note
+    const row = document.querySelector(`#tbody tr[data-id="${pid}"]`);
+    if(row){
+      const btn = row.querySelector('.note-btn');
+      if(btn){
+        if(val) btn.classList.add('note-present');
+        else btn.classList.remove('note-present');
+      }
+    }
+    closeNotesModal();
+    render(searchInput.value);
+  });
+}
+
+// When modal elements are not yet present at script parse time, attach after DOMContentLoaded
+document.addEventListener('DOMContentLoaded', () => {
+  const nb = document.getElementById('closeNotesModal');
+  const cb = document.getElementById('cancelNotesBtn');
+  const sb = document.getElementById('saveNotesBtn');
+  if(nb) nb.addEventListener('click', closeNotesModal);
+  if(cb) cb.addEventListener('click', closeNotesModal);
+  if(sb) sb.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const nm = document.getElementById('notesModal');
+    if(!nm) return;
+    const pid = nm.dataset.personId;
+    if(!pid) { closeNotesModal(); return; }
+    const p = people.find(x => x.id === pid);
+    if(!p) { closeNotesModal(); return; }
+    const val = (document.getElementById('notesTextarea') && document.getElementById('notesTextarea').value) ? document.getElementById('notesTextarea').value.trim() : '';
+    p.notes = val;
+    save();
+    const row = document.querySelector(`#tbody tr[data-id="${pid}"]`);
+    if(row){
+      const btn = row.querySelector('.note-btn');
+      if(btn){
+        if(val) btn.classList.add('note-present');
+        else btn.classList.remove('note-present');
+      }
+    }
+    closeNotesModal();
+    render(searchInput.value);
+  });
 });
 
 /* Right-click (contextmenu) handler: allow in-place editing of "Designación" cell in Activity mode.

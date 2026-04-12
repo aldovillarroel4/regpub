@@ -82,6 +82,7 @@
           <col style="width:220px" />
           <col style="width:120px" />
           <col style="width:180px" />
+          <col style="width:100px" /> <!-- Notas -->
         </colgroup>
         <thead>
           <tr>
@@ -99,6 +100,7 @@
             <th>Dirección</th>
             <th>Teléfono</th>
             <th>Contacto Emergencia</th>
+            <th>Notas</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -253,6 +255,26 @@
             </div>
           </div>
         </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notas modal (block de notas) -->
+  <div id="notesModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="notesTitle">
+    <div class="modal-content" style="max-width:520px;">
+      <header class="modal-header">
+        <h3 id="notesTitle">Notas</h3>
+        <div class="modal-header-actions">
+          <button id="closeNotesModal" class="icon-btn" aria-label="Cerrar notas">&times;</button>
+        </div>
+      </header>
+      <div style="padding:14px 18px 20px;">
+        <div style="margin-bottom:8px; color:var(--muted); font-size:13px;">Anotaciones para: <strong id="notesPersonName" style="color:var(--text)"></strong></div>
+        <textarea id="notesTextarea" rows="8" style="width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid var(--subtle); font-size:14px; background:#fff; color:var(--text);" placeholder="Escribe tus notas aquí..."></textarea>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+          <button id="cancelNotesBtn" class="secondary">Cancelar</button>
+          <button id="saveNotesBtn" class="primary">Guardar</button>
+        </div>
       </div>
     </div>
   </div>

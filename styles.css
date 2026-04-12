@@ -98,6 +98,29 @@ body{
 .icon-btn:hover{
   background: rgba(11,102,255,0.06);
 }
+
+/* small note button placed in the Notas column (paper / memo icon) */
+.note-btn{
+  border:0;
+  background:transparent;
+  padding:6px;
+  border-radius:8px;
+  cursor:pointer;
+  font-size:16px;
+  line-height:1;
+  color:var(--muted);
+}
+.note-btn:hover{
+  background: rgba(11,102,255,0.06);
+  color:var(--accent-strong);
+}
+
+/* When a note exists, show a warning state: warmer color and visible background */
+.note-btn.note-present{
+  color: var(--accent-warm);
+  background: rgba(255,122,26,0.08);
+  box-shadow: 0 2px 8px rgba(255,122,26,0.06);
+}
 .group-seq{
   width:30px;                  /* match badge wrapper width */
   min-width:30px;
