@@ -590,6 +590,8 @@ function render(filter=''){
         }catch(e){}
 
         p.activities[month] = cur;
+        // update 6-month warnings for this person after saving activity for a month
+        try { reconcileSixMonthWarningsForPerson(p); } catch(e){}
         save();
       }
 
@@ -669,6 +671,15 @@ function render(filter=''){
       }
     });
   }
+
+  // ensure any visible comments flagged as "6 MESES SIN INFORMAR" get the special styling class
+  try {
+    tbody.querySelectorAll('.act-comments-input').forEach(el => {
+      const txt = (el.textContent || '').trim();
+      if(txt === '6 MESES SIN INFORMAR') el.classList.add('six-meses');
+      else el.classList.remove('six-meses');
+    });
+  } catch(e){}
 
   // reapply selection if a row id is stored (keep single-selection state across renders)
   if(selectedId){
@@ -864,6 +875,127 @@ function reconcileAuxForPerson(p){
     }
     p.activities[mk] = act;
   }
+  try{ save(); }catch(e){}
+}
+
+/* Detect and mark 6 consecutive irregular months among the last 6 "meses con registro".
+   If a person has 6 consecutive months with hours empty or 0 among those months,
+   place the comment "6 MESES SIN INFORMAR" into the most recent of those months (overwrite previous comment),
+   and ensure the comment will render with the special styling class. */
+function reconcileSixMonthWarningsForPerson(p){
+  if(!p || !p.activities) return;
+  // helper: whether a month key is a "mes con registro" globally (at least one person with hours >=1)
+  function monthHasRecordsGlobal(monthKey){
+    if(!monthKey) return false;
+    for(const q of people){
+      if(!q.activities) continue;
+      const act = q.activities[monthKey];
+      if(!act) continue;
+      const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+      const n = Number(hoursStr);
+      if(hoursStr !== '' && !isNaN(n) && n >= 1) return true;
+    }
+    return false;
+  }
+  // helper: get last N months with records (chronological oldest->newest)
+  function lastNMonthsWithRecords(endMonthKey, n){
+    const res = [];
+    let y,m;
+    if(!endMonthKey || !/^\d{4}-\d{2}$/.test(endMonthKey)){
+      const now = new Date();
+      y = now.getFullYear(); m = now.getMonth() + 1;
+    } else {
+      const parts = endMonthKey.split('-').map(Number);
+      y = parts[0]; m = parts[1];
+    }
+    let checks = 0;
+    while(res.length < n && checks < 60){
+      const key = `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`;
+      if(monthHasRecordsGlobal(key)) res.push(key);
+      m--;
+      if(m < 1){ m = 12; y--; }
+      checks++;
+    }
+    return res.reverse();
+  }
+
+  const endRef = new Date().toISOString().slice(0,7);
+  const monthsWithRegistro = lastNMonthsWithRecords(endRef, 6); // oldest->newest
+
+  if(monthsWithRegistro.length === 0){
+    // nothing to evaluate; ensure no stray comments in any months
+    Object.keys(p.activities).forEach(mk => {
+      if(mk === '_lastMonth') return;
+      const act = p.activities[mk];
+      if(act && String(act.comments || '').trim() === '6 MESES SIN INFORMAR'){
+        act.comments = '';
+        p.activities[mk] = act;
+      }
+    });
+    try{ save(); }catch(e){}
+    return;
+  }
+
+  // If the person has at least one recorded hours >=1 among these reference months,
+  // remove any existing '6 MESES SIN INFORMAR' comments and exit.
+  const hasAnyRecorded = monthsWithRegistro.some(mk => {
+    const act = p.activities && p.activities[mk] ? p.activities[mk] : null;
+    if(!act) return false;
+    const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
+    const n = Number(hoursStr);
+    return (hoursStr !== '' && !isNaN(n) && n >= 1);
+  });
+  if(hasAnyRecorded){
+    monthsWithRegistro.forEach(mk => {
+      const act = p.activities[mk];
+      if(act && String(act.comments || '').trim() === '6 MESES SIN INFORMAR'){
+        act.comments = '';
+        p.activities[mk] = act;
+      }
+    });
+    try{ save(); }catch(e){}
+    return;
+  }
+
+  // Find which of these months have empty or zero hours for this person (oldest->newest)
+  const emptyOrZeroMonths = monthsWithRegistro.filter(mk => {
+    const act = p.activities && p.activities[mk] ? p.activities[mk] : null;
+    const hoursStr = act && act.hours !== undefined && act.hours !== null ? String(act.hours).trim() : '';
+    const hnum = hoursStr === '' ? NaN : Number(hoursStr);
+    return (hoursStr === '' || (!isNaN(hnum) && hnum === 0));
+  });
+
+  if(emptyOrZeroMonths.length === 0){
+    // no irregular months among the reference months: remove any previous '6 MESES SIN INFORMAR' on these months
+    monthsWithRegistro.forEach(mk => {
+      const act = p.activities[mk];
+      if(act && String(act.comments || '').trim() === '6 MESES SIN INFORMAR'){
+        act.comments = '';
+        p.activities[mk] = act;
+      }
+    });
+    try{ save(); }catch(e){}
+    return;
+  }
+
+  // Place the comment only on the most recent month (the newest) among those with empty/0 hours
+  const targetMonth = emptyOrZeroMonths[emptyOrZeroMonths.length - 1];
+
+  // First clear the comment from all reference months
+  monthsWithRegistro.forEach(mk => {
+    const act = p.activities[mk];
+    if(!act) return;
+    if(String(act.comments || '').trim() === '6 MESES SIN INFORMAR'){
+      act.comments = '';
+      p.activities[mk] = act;
+    }
+  });
+
+  // Then set the comment on the target month
+  const targetAct = p.activities[targetMonth] || { aux:false, hours:'', studies:'', comments:'' };
+  targetAct.comments = '6 MESES SIN INFORMAR';
+  p.activities[targetMonth] = targetAct;
+
   try{ save(); }catch(e){}
 }
 
@@ -2890,7 +3022,13 @@ function updateOptionsBar(){
                     it.style.padding = '6px 8px';
                     it.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
                     it.style.fontSize = '13px';
-                    it.style.color = 'var(--text)';
+                    // if person reached 6 irregular months, render name bold and red
+                    if(irregularCount === 6){
+                      it.style.color = 'var(--danger)';
+                      it.style.fontWeight = '700';
+                    } else {
+                      it.style.color = 'var(--text)';
+                    }
                     it.textContent = `${name} — ${irregularCount} mes(es)`;
                     listPanel.appendChild(it);
                   });
@@ -4399,6 +4537,8 @@ importFile.addEventListener('change', (e) => {
         if(!p.activities) p.activities = {};
         return p;
       });
+      // reconcile 6-month warnings for all imported persons
+      try{ people.forEach(p => reconcileSixMonthWarningsForPerson(p)); }catch(e){}
       save();
       render(searchInput.value);
       alert('Importación completada.');
@@ -4509,6 +4649,8 @@ if(loadBtn && csvFile){
 
         // append to existing people list
         people = people.concat(newRecords);
+        // reconcile 6-month warnings for all persons (new and existing)
+        try{ people.forEach(p => reconcileSixMonthWarningsForPerson(p)); }catch(e){}
         save();
         render(searchInput.value);
         alert(`Se agregaron ${newRecords.length} registros desde CSV.`);
@@ -4573,8 +4715,8 @@ form.addEventListener('submit', e => {
     activities: {} // initialize activities container
   };
 
-  // If Privilegio is "Fuera" or "Inactivo", immediately clear the group number
-  if(String(record.privilege).trim() === 'Fuera' || String(record.privilege).trim() === 'Inactivo'){
+  // If Privilegio is "Fuera", "Inactivo" or "Traslado", immediately clear the group number
+  if(['Fuera','Inactivo','Traslado'].includes(String(record.privilege).trim())){
     record.group = '';
   }
 
@@ -4853,8 +4995,8 @@ tbody.addEventListener('dblclick', (e) => {
       updated[key] = val === null ? '' : String(val).trim();
     });
 
-    // If Privilegio was set to "Fuera" or "Inactivo" inline, clear the group immediately
-    if(String(updated.privilege).trim() === 'Fuera' || String(updated.privilege).trim() === 'Inactivo'){
+    // If Privilegio was set to "Fuera", "Inactivo" or "Traslado" inline, clear the group immediately
+    if(['Fuera','Inactivo','Traslado'].includes(String(updated.privilege).trim())){
       updated.group = '';
     }
 
@@ -6156,13 +6298,10 @@ document.addEventListener('click', (e) => {
   opt1.style.width = '100%';
   opt1.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    // write the label into the inner editable area so the wrapper and info button stay intact
     const editable = commentBox.querySelector('.act-comments-input') || commentBox;
     if(editable && typeof editable.textContent !== 'undefined'){
       editable.textContent = 'Inicio Precursorado Regular';
-      // focus the editable area for immediate feedback and persist
       try{ editable.focus(); }catch(e){}
-      // trigger save handlers by dispatching input
       editable.dispatchEvent(new Event('input', { bubbles: true }));
     }
     tab.remove();
@@ -6184,19 +6323,76 @@ document.addEventListener('click', (e) => {
     tab.remove();
   });
 
+  const opt3 = document.createElement('button');
+  opt3.type = 'button';
+  opt3.className = 'secondary';
+  opt3.textContent = 'Llegó a la Congregación';
+  opt3.style.width = '100%';
+  opt3.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const editable = commentBox.querySelector('.act-comments-input') || commentBox;
+    if(editable && typeof editable.textContent !== 'undefined'){
+      editable.textContent = 'Llegó a la Congregación';
+      try{ editable.focus(); }catch(e){}
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    tab.remove();
+  });
+
+  const opt4 = document.createElement('button');
+  opt4.type = 'button';
+  opt4.className = 'secondary';
+  opt4.textContent = 'Traslado';
+  opt4.style.width = '100%';
+  opt4.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const editable = commentBox.querySelector('.act-comments-input') || commentBox;
+    if(editable && typeof editable.textContent !== 'undefined'){
+      editable.textContent = 'Traslado';
+      try{ editable.focus(); }catch(e){}
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    tab.remove();
+  });
+
   // optionally allow appending the label instead of replacing: add small toggle (not shown) - keep simple replace per request
   tab.appendChild(opt1);
   tab.appendChild(opt2);
+  tab.appendChild(opt3);
+  tab.appendChild(opt4);
 
   document.body.appendChild(tab);
-  // position tab directly attached under the info icon (centered under the icon)
-  const rect = infoBtn.getBoundingClientRect();
-  tab.style.position = 'absolute';
-  // place tab centered under the icon and snug against its bottom (small 4px gap)
-  tab.style.left = (rect.left + window.scrollX + rect.width / 2) + 'px';
-  tab.style.transform = 'translateX(-50%)';
-  tab.style.top = (rect.bottom + window.scrollY + 4) + 'px';
-  tab.style.zIndex = 9999;
+
+  // Position the popup centered horizontally within the whole Comments column (not only the small icon)
+  // Prefer to anchor relative to the comment box cell for a more centered placement across the column.
+  try {
+    const iconRect = infoBtn.getBoundingClientRect();
+    // find the nearest table cell (td) that contains the comment box to compute column bounds
+    const cell = commentBox.closest('td') || commentBox.getBoundingClientRect && null;
+    let centerX, topY;
+    if (cell && cell.getBoundingClientRect) {
+      const cellRect = cell.getBoundingClientRect();
+      centerX = cellRect.left + cellRect.width / 2 + window.scrollX;
+      topY = cellRect.bottom + window.scrollY + 6; // small gap
+    } else {
+      // fallback to previous icon-based positioning
+      centerX = iconRect.left + iconRect.width / 2 + window.scrollX;
+      topY = iconRect.bottom + window.scrollY + 4;
+    }
+    tab.style.position = 'absolute';
+    tab.style.left = centerX + 'px';
+    tab.style.transform = 'translateX(-50%)';
+    tab.style.top = topY + 'px';
+    tab.style.zIndex = 9999;
+  } catch (err) {
+    // graceful fallback to icon-based placement if any error occurs
+    const rect = infoBtn.getBoundingClientRect();
+    tab.style.position = 'absolute';
+    tab.style.left = (rect.left + window.scrollX + rect.width / 2) + 'px';
+    tab.style.transform = 'translateX(-50%)';
+    tab.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+    tab.style.zIndex = 9999;
+  }
 
   // clicking outside closes the tab
   setTimeout(() => {
@@ -6490,6 +6686,8 @@ function restoreAppState(state) {
         if(!p.activities) p.activities = {};
         return p;
       });
+      // after restoring, recompute 6-month warnings for all persons
+      try{ people.forEach(p => reconcileSixMonthWarningsForPerson(p)); }catch(e){}
       save();
     }
     // Restaurar modo actividad si está presente

@@ -633,6 +633,12 @@ body{
   color: var(--text);
 }
 
+/* Highlight special 6-months-without-report comment in bold red */
+.act-comments-input.six-meses{
+  color: var(--danger);
+  font-weight: 700;
+}
+
 /* circular info icon placed at the end (inside wrapper) of the comment box */
 .comment-info{
   position:absolute;
