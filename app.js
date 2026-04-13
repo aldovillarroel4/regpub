@@ -1211,10 +1211,41 @@ function updateOptionsBar(){
     } else {
       const selectMonthBtn = document.createElement('button');
       selectMonthBtn.className = 'secondary';
-      selectMonthBtn.textContent = 'Seleccionar mes';
       selectMonthBtn.title = 'Seleccionar mes para todo el registro';
       selectMonthBtn.style.marginLeft = '8px';
       selectMonthBtn.style.position = 'relative';
+      // make the button text blue to match the Activity UI emphasis
+      selectMonthBtn.style.color = 'var(--accent-strong)';
+      // ensure the <strong> inside inherits the blue color as well
+      selectMonthBtn.style.setProperty('color', 'var(--accent-strong)', 'important');
+
+      // helper: format YYYY-MM into localized month name in Spanish (e.g. "Febrero")
+      function formatMonthName(ym){
+        if(!ym || !/^\d{4}-\d{2}$/.test(ym)) return '';
+        try {
+          const [y,m] = ym.split('-').map(Number);
+          const dt = new Date(y, m-1, 1);
+          return dt.toLocaleString('es', { month: 'long' });
+        } catch(e){ return ''; }
+      }
+
+      // set the label as "Mes: <strong>NombreMes</strong>"
+      function updateSelectMonthLabel(){
+        const val = input.value || init || new Date().toISOString().slice(0,7);
+        const monthName = formatMonthName(val) || '';
+        // capitalize first letter to match UI expectations
+        const display = monthName ? (monthName.charAt(0).toUpperCase() + monthName.slice(1)) : '';
+        // include strong tag (it will inherit the button color)
+        selectMonthBtn.innerHTML = `Mes: <strong>${escapeHtml(display)}</strong>`;
+      }
+
+      // ensure label updates when global month input changes
+      input.addEventListener('change', () => {
+        updateSelectMonthLabel();
+      });
+
+      // initialize label now
+      updateSelectMonthLabel();
 
       // when clicked, toggle a small "tab" panel under the button with a month picker + apply
       let tab;
@@ -1237,6 +1268,7 @@ function updateOptionsBar(){
         mInput.addEventListener('change', () => {
           if(!mInput.value) return;
           input.value = mInput.value;
+          // dispatch change to trigger per-row handlers and to update the button label via input listener
           input.dispatchEvent(new Event('change', { bubbles: true }));
           tab.remove();
           tab = null;
@@ -3361,6 +3393,85 @@ function updateOptionsBar(){
     }
 
     bar.appendChild(wrap);
+
+    // Exportar button for Activity panel (red, placed at extreme right)
+    const exportActBtn = document.createElement('button');
+    exportActBtn.className = 'secondary';
+    exportActBtn.id = 'exportActivityBtn';
+    exportActBtn.textContent = 'Exportar';
+    exportActBtn.title = 'Exportar actividad';
+    // styling: red background, white text, match touch-friendly sizing
+    exportActBtn.style.background = '#ef4444';
+    exportActBtn.style.color = '#fff';
+    exportActBtn.style.border = '0';
+    exportActBtn.style.padding = '10px 14px';
+    exportActBtn.style.borderRadius = '10px';
+    exportActBtn.style.fontWeight = '700';
+    exportActBtn.style.boxShadow = '0 6px 18px rgba(239,68,68,0.12)';
+    // push to extreme right of options bar
+    exportActBtn.style.marginLeft = 'auto';
+    exportActBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+
+      // Build CSV from currently visible rows in the Activity table (reflects exactly what's on screen)
+      const headers = ['Nombre (Cong.)','Fecha','Grupo','Privilegio','Designación','Aux. Mes','Horas','Estudios','Comentarios'];
+      const rows = [headers];
+
+      // iterate visible tbody rows (these are the rendered activity rows)
+      const trs = Array.from(tbody.querySelectorAll('tr'));
+      trs.forEach(tr => {
+        // skip placeholder "No hay registros" rows
+        if(!tr.dataset.id) return;
+
+        // Extract cells/controls from the rendered row
+        const congCell = tr.querySelector('.cong-cell');
+        const monthInput = tr.querySelector('.act-month');
+        const groupCell = tr.children[2]; // rendered as plain text cell
+        const privilegeCell = tr.children[3];
+        const designationCell = tr.querySelector('.designation-cell');
+        const auxCheckbox = tr.querySelector('.act-aux');
+        const hoursInput = tr.querySelector('.act-hours');
+        const studiesInput = tr.querySelector('.act-studies');
+        const commentsEl = tr.querySelector('.act-comments-input');
+
+        const cong = congCell ? (congCell.textContent || '').trim() : '';
+        const month = monthInput ? (monthInput.value || '').trim() : '';
+        const group = groupCell ? (groupCell.textContent || '').trim() : '';
+        const priv = privilegeCell ? (privilegeCell.textContent || '').trim() : '';
+        const design = designationCell ? (designationCell.textContent || '').trim() : '';
+        const aux = auxCheckbox ? (auxCheckbox.checked ? 'TRUE' : 'FALSE') : 'FALSE';
+        const hours = hoursInput ? (hoursInput.value || '').trim() : '';
+        const studies = studiesInput ? (studiesInput.value || '').trim() : '';
+        // use getCommentText util to extract clean comment text from contenteditable
+        const comments = commentsEl ? getCommentText(commentsEl) : '';
+
+        rows.push([cong, month, group, priv, design, aux, hours, studies, comments]);
+      });
+
+      // CSV escaping
+      function esc(cell){
+        const s = cell == null ? '' : String(cell);
+        if(s.includes('"') || s.includes(',') || s.includes('\n') || s.includes('\r')){
+          return '"' + s.replace(/"/g,'""') + '"';
+        }
+        return s;
+      }
+      const csv = rows.map(r => r.map(esc).join(',')).join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const now = new Date();
+      const pad = n => String(n).padStart(2,'0');
+      a.download = `${now.getFullYear()}.${pad(now.getMonth()+1)}.${pad(now.getDate())}-${pad(now.getHours())}.${pad(now.getMinutes())} - ACTIVIDAD_EXPORT.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    bar.appendChild(exportActBtn);
   } else {
     // Registry: add "Borrar Selección" / "Borrar Todo" red button (label depends on whether a row is selected)
     bar.classList.add('has-registry-actions');
@@ -4292,6 +4403,109 @@ function updateOptionsBar(){
     });
 
     bar.appendChild(groupsBtn);
+
+    // "Imprimir" button: only show when registry filters on Privilegio or Designación are active
+    const printBtn = document.createElement('button');
+    printBtn.id = 'printBtn';
+    // use secondary base styles plus the print-btn modifier for yellow appearance
+    printBtn.className = 'secondary print-btn';
+    printBtn.textContent = 'Imprimir';
+    printBtn.title = 'Imprimir vista filtrada';
+    // push the button to the extreme right of the options bar
+    printBtn.style.marginLeft = 'auto';
+    printBtn.style.marginRight = '8px';
+
+    // decide visibility: check registry column filters for 'privilege' or 'designation'
+    const showPrint = !!(columnFiltersRegistry && (columnFiltersRegistry['privilege'] || columnFiltersRegistry['designation']));
+    if(!showPrint) printBtn.style.display = 'none';
+
+    // click handler: print current page (filtered view)
+    printBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      try {
+        // Build filtered list same way render() does for Registry mode
+        const q = (searchInput.value || '').trim().toLowerCase();
+        let list = people.slice();
+
+        // global search filter
+        if(q){
+          list = list.filter(p => {
+            return [
+              p.congName, p.firstName, p.lastNameP, p.lastNameM, p.group, p.privilege,
+              p.designation, p.sex, p.esp, p.birthDate, p.baptismDate,
+              p.address, p.phone, p.emergencyContact
+            ].join(' ').toLowerCase().includes(q);
+          });
+        }
+
+        // apply registry column filters (only privilege and designation affect visibility per UI rule)
+        const activeFilters = columnFiltersRegistry || {};
+        Object.keys(activeFilters).forEach(key => {
+          const val = activeFilters[key];
+          if(!val) return;
+          let needles = [];
+          if(Array.isArray(val)) needles = val.map(x => String(x).trim().toLowerCase()).filter(Boolean);
+          else needles = String(val).split(',').map(x => x.trim()).filter(Boolean).map(x => x.toLowerCase());
+          if(needles.length === 0) return;
+          list = list.filter(p => {
+            const v = (p[key] || '').toString().toLowerCase();
+            return needles.some(n => v.includes(n));
+          });
+        });
+
+        // Now open a small print window with only the requested columns
+        const w = window.open('', '_blank');
+        if(!w){ window.print(); return; }
+
+        const doc = w.document;
+        doc.open();
+        doc.write('<!doctype html><html><head><meta charset="utf-8"><title>Registro Publicadores</title>');
+        // basic print styles to ensure table looks good on paper
+        doc.write('<style>');
+        doc.write('body{font-family: Arial, Helvetica, sans-serif; color:#0f1720; margin:24px;}');
+        doc.write('h1{font-size:16px; margin:0 0 12px 0; font-weight:700;}');
+        doc.write('table{border-collapse:collapse; width:100%; margin-top:8px;}');
+        doc.write('th,td{border:1px solid #ddd; padding:8px; text-align:left; font-size:12px;}');
+        doc.write('th{background:#f4f4f4; font-weight:700;}');
+        doc.write('@media print{ th, td { font-size:11px } }');
+        doc.write('</style>');
+        doc.write('</head><body>');
+        // title top-left
+        doc.write('<h1>REGISTRO PUBLICADORES</h1>');
+        doc.write('<table>');
+        doc.write('<thead><tr>');
+        doc.write('<th>Nombre (Cong.)</th><th>Privilegio</th><th>Designación</th><th>Teléfono</th>');
+        doc.write('</tr></thead>');
+        doc.write('<tbody>');
+        // populate rows
+        list.forEach(p => {
+          const name = (p.congName || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          const priv = (p.privilege || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          const design = (p.designation || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          const phone = (p.phone || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          doc.write(`<tr><td>${name}</td><td>${priv}</td><td>${design}</td><td>${phone}</td></tr>`);
+        });
+        doc.write('</tbody></table>');
+        doc.write('</body></html>');
+        doc.close();
+
+        // allow render then print/save as PDF
+        setTimeout(() => { w.focus(); w.print(); }, 300);
+        return;
+      } catch (e) {
+        // fallback to generic print
+        console.error('Print error', e);
+      }
+      window.print();
+    });
+
+    // ensure print button updates visibility when filters change by storing ref on bar and toggling on render/update
+    printBtn._updateVisibility = function(){
+      const shouldShow = !!(columnFiltersRegistry && (columnFiltersRegistry['privilege'] || columnFiltersRegistry['designation']));
+      printBtn.style.display = shouldShow ? '' : 'none';
+    };
+
+    bar.appendChild(printBtn);
   }
 }
 
@@ -4838,6 +5052,11 @@ tbody.addEventListener('click', (e) => {
 
 /* Double-click to edit: inline editing in Registro; keep modal edit in Activity mode */
 tbody.addEventListener('dblclick', (e) => {
+  // If the double-click originated inside an editable control, ignore it so editing does not select the row.
+  if (e.target.closest('input, textarea, select, .act-comments-input, .act-month, .act-aux, .act-hours, .act-studies')) {
+    return;
+  }
+
   const td = e.target.closest('td');
   if(!td) return;
   const tr = td.parentElement;
@@ -5452,6 +5671,8 @@ function initHeaderSorting(){
         }
         closeFilterPanel();
         render(searchInput.value);
+        // Make sure contextual options update immediately so the "Imprimir" button appears/disappears at once
+        try { updateOptionsBar(); } catch(e){}
       }
 
       // add document click to close when clicking outside
@@ -6355,11 +6576,28 @@ document.addEventListener('click', (e) => {
     tab.remove();
   });
 
+  const opt5 = document.createElement('button');
+  opt5.type = 'button';
+  opt5.className = 'secondary';
+  opt5.textContent = 'Reactivado';
+  opt5.style.width = '100%';
+  opt5.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const editable = commentBox.querySelector('.act-comments-input') || commentBox;
+    if(editable && typeof editable.textContent !== 'undefined'){
+      editable.textContent = 'Reactivado';
+      try{ editable.focus(); }catch(e){}
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    tab.remove();
+  });
+
   // optionally allow appending the label instead of replacing: add small toggle (not shown) - keep simple replace per request
   tab.appendChild(opt1);
   tab.appendChild(opt2);
   tab.appendChild(opt3);
   tab.appendChild(opt4);
+  tab.appendChild(opt5);
 
   document.body.appendChild(tab);
 
@@ -6610,6 +6848,61 @@ tbody.addEventListener('contextmenu', (e) => {
 });
 
 initResizableColumns();
+
+// Export CSV from "Agregar Persona" modal: export full registry (Registro panel) as CSV
+const exportPersonBtnEl = document.getElementById('exportPersonBtn');
+if (exportPersonBtnEl) {
+  exportPersonBtnEl.addEventListener('click', () => {
+    // CSV headers matching table columns visible in Registro
+    const headers = ['Nombre (Cong.)','Nombre','Apellido Paterno','Apellido Materno','Grupo','Privilegio','Designación','Sexo','Esp','Fecha Nacimiento','Fecha Bautismo','Dirección','Teléfono','Contacto Emergencia','Notas'];
+
+    function escapeCell(value){
+      if(value === null || typeof value === 'undefined') return '';
+      const s = String(value);
+      // If contains quotes, commas or newlines, wrap in quotes and escape internal quotes
+      if (s.includes('"') || s.includes(',') || s.includes('\n') || s.includes('\r')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+
+    // Build CSV rows from people array (full registry)
+    const rows = people.map(p => {
+      const row = [
+        p.congName || '',
+        p.firstName || '',
+        p.lastNameP || '',
+        p.lastNameM || '',
+        p.group || '',
+        p.privilege || '',
+        p.designation || '',
+        p.sex || '',
+        p.esp || '',
+        p.birthDate || '',
+        p.baptismDate || '',
+        p.address || '',
+        p.phone || '',
+        p.emergencyContact || '',
+        p.notes || ''
+      ];
+      return row.map(escapeCell).join(',');
+    });
+
+    const csvContent = headers.join(',') + '\n' + rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    a.download = `${now.getFullYear()}.${pad(now.getMonth()+1)}.${pad(now.getDate())}-${pad(now.getHours())}.${pad(now.getMinutes())} - REGISTRO_PUBLICADORES.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+}
+
 initHeaderSorting();
 // Ensure "Registro" is active on initial load
 activityMode = false;

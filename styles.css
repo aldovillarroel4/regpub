@@ -994,3 +994,23 @@ label.full{width:100%}
   box-shadow: 0 -6px 18px rgba(16,24,40,0.04);
 }
 .hidden{display:none}
+
+/* Print button (yellow) */
+.print-btn{
+  background: linear-gradient(180deg,#ffd54f,#f6c200);
+  color: #0f1720;
+  border: 1px solid #f0b400;
+  padding:10px 14px;
+  border-radius:10px;
+  font-weight:700;
+  box-shadow: 0 6px 18px rgba(240,180,0,0.12);
+  cursor: pointer;
+}
+.print-btn:hover{
+  /* darker yellow gradient on hover for clearer attenuation */
+  background: linear-gradient(180deg,#f0b400,#d99a00);
+  filter: none;
+}
+.print-btn:active{
+  transform: translateY(1px);
+}
