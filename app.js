@@ -5078,17 +5078,31 @@ importBtn.addEventListener('click', async (ev) => {
   });
 });
 
-// keep existing file-input import behavior (manual local import)
+/* keep existing file-input import behavior (manual local import)
+   Accept both older backups exported as a plain array of person records and
+   newer full-state backups (object with a `people` array and other metadata).
+*/
 importFile.addEventListener('change', (e) => {
   const f = e.target.files && e.target.files[0];
   if(!f) return;
   const reader = new FileReader();
   reader.onload = () => {
     try{
-      const data = JSON.parse(reader.result);
-      if(!Array.isArray(data)) throw new Error('Formato inválido: se esperaba un arreglo de registros.');
+      const parsed = JSON.parse(reader.result);
+      // Support both formats:
+      // - legacy: exported file was an array of person records
+      // - modern: exported file is an object returned by getAppState() with a `people` array
+      let importedRecords = null;
+      if(Array.isArray(parsed)){
+        importedRecords = parsed;
+      } else if(parsed && Array.isArray(parsed.people)){
+        importedRecords = parsed.people;
+      } else {
+        throw new Error('Formato inválido: se esperaba un arreglo de registros o un objeto con propiedad "people".');
+      }
+
       // basic validation of record shape is skipped; we replace current data
-      people = data.map(p => {
+      people = importedRecords.map(p => {
         if(!p.id) p.id = uid();
         // keep activities structure if present, otherwise ensure blank
         if(!p.activities) p.activities = {};
@@ -7337,6 +7351,30 @@ function onGoogleUserLoggedIn(userData) {
 }
 
 /* Funciones de estado de la app (plantilla) */
+
+/* Collect all asistencia_values_* entries from localStorage in a robust way so backups always include Asistencia Reuniones data */
+function collectAsistenciaValues() {
+  const asistencia = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith('asistencia_values_')) {
+        try {
+          const raw = localStorage.getItem(key);
+          asistencia[key] = raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          // keep raw string if JSON.parse fails to avoid data loss
+          asistencia[key] = localStorage.getItem(key);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Error recopilando asistencia_values desde localStorage', e);
+  }
+  return asistencia;
+}
+
 function getAppState() {
   // Devuelve un objeto con el estado que se desea respaldar.
   // Incluye la lista de personas y además todas las entradas de asistencia
@@ -7350,23 +7388,9 @@ function getAppState() {
       bannerTitle: (function(){ try{ return localStorage.getItem(BANNER_TITLE_KEY) || null; }catch(e){ return null; } })()
     };
 
-    // collect asistencia_values_* entries from localStorage
+    // collect asistencia_values_* entries from localStorage using dedicated collector
     try {
-      const asistencia = {};
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        if (key.startsWith('asistencia_values_')) {
-          try {
-            const raw = localStorage.getItem(key);
-            asistencia[key] = raw ? JSON.parse(raw) : null;
-          } catch (e) {
-            // if parse fails, keep raw string to avoid data loss
-            asistencia[key] = localStorage.getItem(key);
-          }
-        }
-      }
-      state.asistencia_values = asistencia;
+      state.asistencia_values = collectAsistenciaValues();
     } catch (e) {
       console.warn('Error recopilando asistencia_values para respaldo', e);
       state.asistencia_values = {};
