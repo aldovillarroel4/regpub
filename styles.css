@@ -60,6 +60,19 @@ body{
   font-size:14px;
   box-shadow: 0 4px 14px rgba(16,24,40,0.04);
 }
+.banner-left{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.banner-logo{
+  width:44px;
+  height:44px;
+  border-radius:8px;
+  object-fit:contain;
+  flex:0 0 44px;
+  background:transparent;
+}
 .banner-title{
   color:var(--text);
   font-weight:700;

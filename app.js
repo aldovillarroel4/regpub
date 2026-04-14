@@ -2702,7 +2702,7 @@ function updateOptionsBar(){
           { label: 'Ancianos', id: 'totales_ancianos' },
           { label: 'Siervos Ministeriales', id: 'totales_siervos' },
           { label: 'Precursores Regulares', id: 'totales_precursores_reg' },
-          { label: 'Prec. Aux. Indef.', id: 'totales_precursores_aux' },
+          { label: 'Prec. Auxiliares', id: 'totales_precursores_aux' },
           { label: 'Irregulares', id: 'totales_irregulares' },
           { label: 'Inactivos', id: 'totales_inactivos' }
         ];
@@ -3107,6 +3107,338 @@ function updateOptionsBar(){
         });
 
         card.appendChild(topStrip);
+
+        // NEW: horizontal button row of quick "Totales" actions placed under the top strip
+        // Arrange buttons to occupy the full width evenly (each button flexes equally).
+        const totalsButtonsRow = document.createElement('div');
+        totalsButtonsRow.style.display = 'flex';
+        totalsButtonsRow.style.gap = '8px';
+        totalsButtonsRow.style.padding = '12px 18px';
+        totalsButtonsRow.style.alignItems = 'center';
+        totalsButtonsRow.style.justifyContent = 'space-between';
+        totalsButtonsRow.style.borderBottom = '1px solid var(--subtle)';
+        totalsButtonsRow.style.background = 'transparent';
+        totalsButtonsRow.style.width = '100%';
+        totalsButtonsRow.style.boxSizing = 'border-box';
+
+        const makeTotalsBtn = (text, idSuffix) => {
+          const b = document.createElement('button');
+          b.className = 'secondary';
+          b.textContent = text;
+          b.id = `totales_quick_${idSuffix}`;
+          // make each button expand equally to fill the full row
+          b.style.flex = '1 1 0';
+          b.style.textAlign = 'center';
+          b.style.padding = '10px 12px';
+          b.style.borderRadius = '8px';
+          b.style.minWidth = '0';
+          b.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            try {
+              const endRef = new Date().toISOString().slice(0,7);
+              // helper: last N months ending at endRef (newest-first)
+              const lastNMonths = (endMonthKey, n) => {
+                const res = [];
+                let y,m;
+                if(!endMonthKey || !/^\d{4}-\d{2}$/.test(endMonthKey)){
+                  const now = new Date();
+                  y = now.getFullYear(); m = now.getMonth() + 1;
+                } else {
+                  const parts = endMonthKey.split('-').map(Number);
+                  y = parts[0]; m = parts[1];
+                }
+                for(let i=0;i<n;i++){
+                  res.push(`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`);
+                  m--;
+                  if(m < 1){ m = 12; y--; }
+                }
+                return res;
+              };
+
+              if(idSuffix === 'asistencia'){
+                // Remove any previous asistencia panels
+                const existingPanels = card.querySelector('#asistenciaPanels');
+                if(existingPanels) existingPanels.remove();
+
+                // build container for the two side-by-side panels
+                const panelsWrap = document.createElement('div');
+                panelsWrap.id = 'asistenciaPanels';
+                panelsWrap.style.display = 'flex';
+                panelsWrap.style.gap = '12px';
+                panelsWrap.style.marginTop = '12px';
+                panelsWrap.style.padding = '12px 18px';
+                panelsWrap.style.boxSizing = 'border-box';
+                panelsWrap.style.justifyContent = 'stretch';
+
+                // helper to build a single panel (titleLeft true => left panel)
+                function buildAsistenciaPanel(title){
+                  const panel = document.createElement('div');
+                  panel.style.flex = '1 1 0';
+                  panel.style.minWidth = '240px';
+                  panel.style.background = '#fff';
+                  panel.style.border = '1px solid var(--subtle)';
+                  panel.style.borderRadius = '8px';
+                  panel.style.overflow = 'hidden';
+                  panel.style.display = 'flex';
+                  panel.style.flexDirection = 'column';
+
+                  const head = document.createElement('div');
+                  head.style.padding = '10px';
+                  head.style.borderBottom = '1px solid var(--subtle)';
+                  head.style.fontWeight = '700';
+                  head.textContent = title;
+                  panel.appendChild(head);
+
+                  const tableWrap = document.createElement('div');
+                  tableWrap.style.padding = '8px';
+                  tableWrap.style.overflow = 'auto';
+
+                  const table = document.createElement('table');
+                  table.style.width = '100%';
+                  table.style.borderCollapse = 'collapse';
+                  table.style.tableLayout = 'fixed';
+                  table.style.fontSize = '13px';
+
+                  const thead = document.createElement('thead');
+                  const trh = document.createElement('tr');
+                  ['Mes','N° Reuniones','Asistencia Mes','Prom. Semanal'].forEach(c => {
+                    const th = document.createElement('th');
+                    th.textContent = c;
+                    th.style.padding = '8px';
+                    th.style.borderBottom = '1px solid var(--subtle)';
+                    th.style.textAlign = 'center';
+                    th.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(250,250,251,0.98))';
+                    th.style.fontWeight = '700';
+                    trh.appendChild(th);
+                  });
+                  thead.appendChild(trh);
+                  table.appendChild(thead);
+
+                  const tbodyLocal = document.createElement('tbody');
+                  // months for service year (Sept prev year -> Aug year), 12 rows
+                  const now = new Date();
+                  const defaultServiceYear = (now.getMonth() >= 8) ? (now.getFullYear() + 1) : now.getFullYear();
+                  const months = [];
+                  const start = new Date(defaultServiceYear - 1, 8, 1); // Sept prev year
+                  for(let i=0;i<12;i++){
+                    const cur = new Date(start.getFullYear(), start.getMonth() + i, 1);
+                    const key = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;
+                    const label = cur.toLocaleString('es', { month: 'long', year: 'numeric' });
+                    months.push({ key, label });
+                  }
+
+                  months.forEach(mo => {
+                    const tr = document.createElement('tr');
+                    tr.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
+
+                    const tdMonth = document.createElement('td');
+                    tdMonth.style.padding = '8px';
+                    tdMonth.style.textAlign = 'left';
+                    tdMonth.textContent = mo.label;
+                    tr.appendChild(tdMonth);
+
+                    // N° Reuniones (will remain placeholder 0 unless you store meeting counts separately)
+                    const tdNum = document.createElement('td');
+                    tdNum.style.padding = '8px';
+                    tdNum.style.textAlign = 'center';
+                    tdNum.textContent = '0';
+                    tr.appendChild(tdNum);
+
+                    // Asistencia Mes (total for the month) - compute from saved per-day totals if present
+                    const tdAsis = document.createElement('td');
+                    tdAsis.style.padding = '8px';
+                    tdAsis.style.textAlign = 'center';
+                    // Attempt to compute total month attendance from stored asistencia rows
+                    try {
+                      const valuesKey = `asistencia_values_${mo.key}`;
+                      const savedRows = JSON.parse(localStorage.getItem(valuesKey) || '[]');
+                      let monthSum = 0;
+                      if (Array.isArray(savedRows)) {
+                        savedRows.forEach(row => {
+                          if(!row) return;
+                          const values = row.values || {};
+                          // sum numeric values for the row (columns G1..G8 + Salón), stored by index
+                          const keys = Object.keys(values);
+                          let rowSum = 0;
+                          keys.forEach(k => {
+                            const v = values[k];
+                            const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
+                            if(!isNaN(n)) rowSum += n;
+                          });
+                          if(rowSum > 0) monthSum += rowSum;
+                        });
+                      }
+                      tdAsis.textContent = String(monthSum);
+                    } catch (err) {
+                      tdAsis.textContent = '0';
+                    }
+                    tr.appendChild(tdAsis);
+
+                    // Prom. Semanal: compute the "Prom. E.S." for this month by averaging weekday (Mon-Fri) Total Día
+                    const tdProm = document.createElement('td');
+                    tdProm.style.padding = '8px';
+                    tdProm.style.textAlign = 'center';
+                    try {
+                      const valuesKey = `asistencia_values_${mo.key}`;
+                      const savedRows = JSON.parse(localStorage.getItem(valuesKey) || '[]');
+                      let weekendSum = 0; // here we will compute weekday sum (Entre Semana)
+                      let countWeekdaysWithRegistro = 0;
+                      if (Array.isArray(savedRows)) {
+                        savedRows.forEach(row => {
+                          if(!row) return;
+                          const dateStr = row.date || '';
+                          if(!dateStr) return;
+                          const d = parseLocalDate(dateStr);
+                          if(!d || isNaN(d.getTime())) return;
+                          const day = d.getDay(); // 0=Sun,1=Mon,...6=Sat
+                          // only consider weekdays for "Entre Semana" (Mon-Fri)
+                          if(day >= 1 && day <= 5){
+                            const values = row.values || {};
+                            let sum = 0;
+                            Object.keys(values).forEach(k => {
+                              const v = values[k];
+                              const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
+                              if(!isNaN(n)) sum += n;
+                            });
+                            if(sum > 0){
+                              weekendSum += sum;
+                              countWeekdaysWithRegistro++;
+                            }
+                          }
+                        });
+                      }
+                      let avgES = 0;
+                      if (countWeekdaysWithRegistro > 0) avgES = weekendSum / countWeekdaysWithRegistro;
+                      tdProm.textContent = Number.isFinite(avgES) ? String(Math.round(avgES)) : '0';
+                    } catch (err) {
+                      tdProm.textContent = '0';
+                    }
+                    tr.appendChild(tdProm);
+
+                    tbodyLocal.appendChild(tr);
+                  });
+
+                  // Add a footer row computing "Promedio de asistencia mensual" from the "Prom. Semanal" column
+
+
+                  table.appendChild(tbodyLocal);
+                  tableWrap.appendChild(table);
+
+                  // Compute "Promedio de asistencia mensual" from the "Prom. Semanal" column and render it
+                  // as a single-line indicator placed below the table (one line across the panel).
+                  try {
+                    const promCells = Array.from(tbodyLocal.querySelectorAll('tr')).map(r => {
+                      const cells = r.children;
+                      // Prom. Semanal is the 4th column (index 3)
+                      const v = cells[3] ? (cells[3].textContent || '').trim() : '';
+                      const n = Number(v);
+                      return (v === '' || isNaN(n)) ? NaN : n;
+                    }).filter(v => !isNaN(v));
+
+                    let avg = 0;
+                    if(promCells.length > 0){
+                      const sum = promCells.reduce((s,x) => s + x, 0);
+                      avg = sum / promCells.length;
+                    }
+
+                    const avgWrap = document.createElement('div');
+                    avgWrap.style.display = 'flex';
+                    avgWrap.style.justifyContent = 'center';
+                    avgWrap.style.alignItems = 'center';
+                    avgWrap.style.padding = '10px 8px';
+                    avgWrap.style.borderTop = '1px solid var(--subtle)';
+                    avgWrap.style.background = 'linear-gradient(180deg, rgba(250,250,251,0.98), rgba(255,255,255,0.98))';
+
+                    const label = document.createElement('div');
+                    label.textContent = 'Promedio de asistencia mensual';
+                    label.style.fontWeight = '700';
+                    label.style.marginRight = '12px';
+                    label.style.whiteSpace = 'nowrap';
+
+                    const value = document.createElement('div');
+                    value.textContent = Number.isFinite(avg) ? String(Math.round(avg)) : '0';
+                    value.style.fontWeight = '700';
+                    value.style.minWidth = '40px';
+                    value.style.textAlign = 'center';
+
+                    avgWrap.appendChild(label);
+                    avgWrap.appendChild(value);
+                    // place the avgWrap under the table inside the same panel
+                    panel.appendChild(tableWrap);
+                    panel.appendChild(avgWrap);
+                  } catch (err) {
+                    // fallback: still append table and return panel
+                    panel.appendChild(tableWrap);
+                  }
+
+                  return panel;
+                }
+
+                const left = buildAsistenciaPanel('Reunión de entre semana');
+                const right = buildAsistenciaPanel('Reunión del fin de semana');
+
+                panelsWrap.appendChild(left);
+                panelsWrap.appendChild(right);
+
+                // insert panelsWrap after the totalsButtonsRow (which is totalsButtonsRow element in current scope)
+                // totalsButtonsRow is appended earlier; find it and insert after
+                const afterInsertTarget = card.querySelector('div[style*="display: flex"][style*="gap: 8px"]') || card.querySelector(':scope > div');
+                // safer: append panels to card right below totalsButtonsRow (totalsButtonsRow variable is local, but we can append right after totalsButtonsRow by searching for our totalsButtonsRow element via its children)
+                const existingRow = card.querySelector('div') || null;
+                // append panels directly under the top strip area: place before bodyArea if exists
+                const existingBodyArea = card.querySelector('div[style*="flex: 1 1 auto"]');
+                if (existingBodyArea) {
+                  card.insertBefore(panelsWrap, existingBodyArea);
+                } else {
+                  card.appendChild(panelsWrap);
+                }
+
+                // ensure scroll into view
+                panelsWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                return;
+              }
+
+              // previous quick actions kept for other buttons
+              let result = 0;
+              if(idSuffix === 'publicadores'){
+                const sel = new Date().toISOString().slice(0,7);
+                people.forEach(p => {
+                  if(!p.activities) return;
+                  const act = p.activities[sel];
+                  if(!act) return;
+                  const hs = String(act.hours || '').trim();
+                  if(hs === '1' || Number(hs) === 1) result++;
+                });
+                alert(`Totales Publicadores (mes actual): ${result}`);
+              } else if(idSuffix === 'prec_aux'){
+                const sel = new Date().toISOString().slice(0,7);
+                people.forEach(p => {
+                  if(!p.activities) return;
+                  const act = p.activities[sel];
+                  if(act && act.aux) result++;
+                });
+                alert(`Totales Prec. Aux. Indef. (mes actual): ${result}`);
+              } else if(idSuffix === 'prec_reg'){
+                people.forEach(p => {
+                  if(String(p.designation || '').trim() === 'Precursor Regular') result++;
+                });
+                alert(`Totales Prec. Regulares: ${result}`);
+              }
+            } catch (err) {
+              console.error('quick totals error', err);
+              alert('Error calculando totales (ver consola).');
+            }
+          });
+          return b;
+        };
+
+        // Append buttons and ensure even spacing across the full width
+        totalsButtonsRow.appendChild(makeTotalsBtn('Totales Asistencia','asistencia'));
+        totalsButtonsRow.appendChild(makeTotalsBtn('Totales Publicadores','publicadores'));
+        totalsButtonsRow.appendChild(makeTotalsBtn('Totales Prec. Auxiliares','prec_aux'));
+        totalsButtonsRow.appendChild(makeTotalsBtn('Totales Prec. Regulares','prec_reg'));
+
+        card.appendChild(totalsButtonsRow);
 
         // Main content area below the top group (scrollable)
         const bodyArea = document.createElement('div');
@@ -5695,55 +6027,97 @@ function saveBannerTitle(val){
   try{ localStorage.setItem(BANNER_TITLE_KEY, val); }catch(e){}
 }
 
-/* make banner title editable on double-click */
-const bannerTitleEl = document.querySelector('.banner-title');
-const defaultBannerText = bannerTitleEl ? bannerTitleEl.textContent : '';
-const persisted = loadBannerTitle();
-if(bannerTitleEl){
-  bannerTitleEl.textContent = persisted || defaultBannerText;
+/* Named handler so the banner title can be edited repeatedly without leaking listeners */
+function bannerTitleDbl(e){
+  const currentEl = document.querySelector('.banner-title');
+  const defaultBannerText = currentEl ? currentEl.textContent : 'REGISTRO PUBLICADORES - CONGREGACION OESTE';
+  const persisted = loadBannerTitle();
+  // ensure we operate on the current element
+  const sourceText = (currentEl && currentEl.textContent) ? currentEl.textContent : (persisted || defaultBannerText);
 
-  bannerTitleEl.addEventListener('dblclick', (e) => {
-    // create input overlay
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'banner-title-input';
-    input.value = bannerTitleEl.textContent;
-    // replace display with input
-    bannerTitleEl.replaceWith(input);
-    input.focus();
-    input.select();
+  // create input overlay
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'banner-title-input';
+  input.value = sourceText;
 
-    function commit(){
-      const val = input.value.trim() || defaultBannerText;
-      const newEl = document.createElement('div');
-      newEl.className = 'banner-title';
-      newEl.textContent = val;
-      input.replaceWith(newEl);
-      saveBannerTitle(val);
-      // reattach handler to new element
-      newEl.addEventListener('dblclick', bannerTitleDbl);
-    }
-    function cancel(){
-      const newEl = document.createElement('div');
-      newEl.className = 'banner-title';
-      newEl.textContent = bannerTitleEl.textContent;
-      input.replaceWith(newEl);
-      newEl.addEventListener('dblclick', bannerTitleDbl);
-    }
-    function onKey(e){
-      if(e.key === 'Enter'){
-        commit();
-      } else if(e.key === 'Escape'){
-        cancel();
+  // Replace current element with the input (guarded)
+  if(currentEl && currentEl.parentNode){
+    currentEl.parentNode.replaceChild(input, currentEl);
+  } else {
+    // fallback: find any existing banner input or append to banner
+    const banner = document.querySelector('.banner');
+    if(banner) banner.insertBefore(input, banner.firstChild);
+  }
+
+  input.focus();
+  input.select();
+
+  // Commit and cancel helpers
+  function commit(){
+    const val = input.value.trim() || defaultBannerText;
+    const newEl = document.createElement('div');
+    newEl.className = 'banner-title';
+    newEl.textContent = val;
+    // Replace input with new element if still connected
+    try{
+      if(input.isConnected && input.parentNode){
+        input.parentNode.replaceChild(newEl, input);
+      } else {
+        // try to replace any stale node
+        const existing = document.querySelector('.banner-title') || document.querySelector('.banner-title-input');
+        if(existing && existing.parentNode) existing.parentNode.replaceChild(newEl, existing);
       }
+    }catch(err){
+      // ensure banner-title exists
+      const banner = document.querySelector('.banner');
+      if(banner && !banner.querySelector('.banner-title')) banner.prepend(newEl);
     }
-    // helper to reattach
-    function bannerTitleDbl(ev){ /* no-op placeholder for later reattach */ }
+    saveBannerTitle(val);
+    // reattach handler for future edits
+    newEl.addEventListener('dblclick', bannerTitleDbl);
+  }
+  function cancel(){
+    const newEl = document.createElement('div');
+    newEl.className = 'banner-title';
+    newEl.textContent = sourceText || defaultBannerText;
+    try{
+      if(input.isConnected && input.parentNode){
+        input.parentNode.replaceChild(newEl, input);
+      } else {
+        const existing = document.querySelector('.banner-title') || document.querySelector('.banner-title-input');
+        if(existing && existing.parentNode) existing.parentNode.replaceChild(newEl, existing);
+      }
+    }catch(err){
+      const banner = document.querySelector('.banner');
+      if(banner && !banner.querySelector('.banner-title')) banner.prepend(newEl);
+    }
+    newEl.addEventListener('dblclick', bannerTitleDbl);
+  }
 
-    input.addEventListener('blur', commit, { once: true });
-    input.addEventListener('keydown', onKey);
-  });
+  function onKey(ev){
+    if(ev.key === 'Enter'){ ev.preventDefault(); commit(); }
+    else if(ev.key === 'Escape'){ ev.preventDefault(); cancel(); }
+  }
+
+  // Guard against multiple handlers or removed nodes
+  input.addEventListener('blur', () => { try{ commit(); }catch(e){} }, { once: true });
+  input.addEventListener('keydown', onKey);
 }
+
+// attach to existing element (or set initial text and attach once created)
+(function attachBannerEditable(){
+  const bannerTitleEl = document.querySelector('.banner-title');
+  const defaultBannerText = bannerTitleEl ? bannerTitleEl.textContent : 'REGISTRO PUBLICADORES - CONGREGACION OESTE';
+  const persisted = loadBannerTitle();
+  if(bannerTitleEl){
+    bannerTitleEl.textContent = persisted || defaultBannerText;
+    bannerTitleEl.addEventListener('dblclick', bannerTitleDbl);
+  } else {
+    // if not present yet, try again shortly (handles async DOM insertions)
+    setTimeout(attachBannerEditable, 200);
+  }
+})();
 
 /* Render activity rows for a single service year (September–August) into popup.
    A year label like 2026 represents Sept 2025 -> Aug 2026. */
