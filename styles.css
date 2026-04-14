@@ -1027,3 +1027,11 @@ label.full{width:100%}
 .print-btn:active{
   transform: translateY(1px);
 }
+
+/* Selected visual state for Totales quick buttons (bright yellow) */
+.totales-selected{
+  background: linear-gradient(180deg,#ffd54f,#f6c200) !important;
+  color: #0f1720 !important;
+  border: 1px solid #f0b400 !important;
+  box-shadow: 0 6px 18px rgba(240,180,0,0.12) !important;
+}

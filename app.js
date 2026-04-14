@@ -1767,32 +1767,7 @@ function updateOptionsBar(){
           const total = computeTotalActivos(sel);
           valueBox.textContent = String(total);
 
-          // show small badge if any of the checked last-6-months are "mes sin registros" (all people 0 hours)
-          try {
-            // remove existing badge if any
-            let badge = valueBox.parentNode.querySelector('#jw_no_records_badge');
-            const monthsChecked = lastNMonths(sel, 6);
-            const noRecordMonths = monthsChecked.filter(mk => !monthHasRecords(mk));
-            if(!badge && noRecordMonths.length > 0){
-              badge = document.createElement('div');
-              badge.id = 'jw_no_records_badge';
-              badge.style.marginLeft = '8px';
-              badge.style.display = 'inline-flex';
-              badge.style.alignItems = 'center';
-              badge.style.padding = '6px 8px';
-              badge.style.borderRadius = '8px';
-              badge.style.background = 'linear-gradient(180deg, rgba(220,220,220,0.18), rgba(220,220,220,0.10))';
-              badge.style.border = '1px solid rgba(200,200,200,0.18)';
-              badge.style.fontSize = '12px';
-              badge.style.color = 'var(--muted)';
-              badge.textContent = `${noRecordMonths.length} mes(es) sin registros`;
-              valueBox.parentNode.appendChild(badge);
-            } else if(badge && noRecordMonths.length === 0){
-              badge.remove();
-            } else if(badge && noRecordMonths.length > 0){
-              badge.textContent = `${noRecordMonths.length} mes(es) sin registros`;
-            }
-          } catch(e){ /* ignore UI badge errors */ }
+
 
           // update Publicadores "Cantidad de informes" and "Cursos Bíblicos"
           try {
@@ -2759,9 +2734,14 @@ function updateOptionsBar(){
             // toggle handler: compute members and show alphabetized list
             btn.addEventListener('click', (ev) => {
               ev.stopPropagation();
-              // close any existing similar panel first
+              // If this indicator's panel is already open, toggle it closed.
               const existing = document.getElementById(ind.id + '_list');
-              if (existing && existing !== listPanel) existing.remove();
+              if (existing) {
+                existing.remove();
+                return;
+              }
+              // close any other open indicator panels
+              document.querySelectorAll('[id$="_list"]').forEach(el => el.remove());
 
               // build list items
               listPanel.innerHTML = '';
@@ -3135,6 +3115,13 @@ function updateOptionsBar(){
           b.addEventListener('click', (ev) => {
             ev.stopPropagation();
             try {
+              // Toggle selected visual state: remove from siblings and add to clicked button
+              try {
+                document.querySelectorAll('[id^="totales_quick_"]').forEach(btn => {
+                  btn.classList.remove('totales-selected');
+                });
+                b.classList.add('totales-selected');
+              } catch (_) { /* ignore */ }
               const endRef = new Date().toISOString().slice(0,7);
               // helper: last N months ending at endRef (newest-first)
               const lastNMonths = (endMonthKey, n) => {
@@ -3215,6 +3202,8 @@ function updateOptionsBar(){
                   table.appendChild(thead);
 
                   const tbodyLocal = document.createElement('tbody');
+                  // detect if this panel is the weekend panel so Prom. Semanal uses weekend-average (F.S.)
+                  const isWeekendPanel = String(title || '').toLowerCase().includes('fin de semana');
                   // months for service year (Sept prev year -> Aug year), 12 rows
                   const now = new Date();
                   const defaultServiceYear = (now.getMonth() >= 8) ? (now.getFullYear() + 1) : now.getFullYear();
@@ -3241,18 +3230,45 @@ function updateOptionsBar(){
                     const tdNum = document.createElement('td');
                     tdNum.style.padding = '8px';
                     tdNum.style.textAlign = 'center';
-                    tdNum.textContent = '0';
+                    // compute "N° Reuniones" as count of included rows (weekday or weekend) that have a registro (row total > 0)
+                    try {
+                      const valuesKeyCount = `asistencia_values_${mo.key}`;
+                      const savedRowsCount = JSON.parse(localStorage.getItem(valuesKeyCount) || '[]');
+                      let meetingsCount = 0;
+                      if (Array.isArray(savedRowsCount)) {
+                        savedRowsCount.forEach(row => {
+                          if(!row) return;
+                          const dateStr = row.date || '';
+                          if(!dateStr) return;
+                          const d = parseLocalDate(dateStr);
+                          if(!d || isNaN(d.getTime())) return;
+                          const day = d.getDay(); // 0=Sun,1=Mon,...6=Sat
+                          const includeRow = isWeekendPanel ? (day === 0 || day === 6) : (day >= 1 && day <= 5);
+                          if(!includeRow) return;
+                          const values = row.values || {};
+                          let rowSum = 0;
+                          Object.keys(values).forEach(k => {
+                            const v = values[k];
+                            const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
+                            if(!isNaN(n)) rowSum += n;
+                          });
+                          if(rowSum > 0) meetingsCount++;
+                        });
+                      }
+                      tdNum.textContent = String(meetingsCount);
+                    } catch (err) {
+                      tdNum.textContent = '0';
+                    }
                     tr.appendChild(tdNum);
 
-                    // Asistencia Mes (total for the month) - compute as "Total Entre Semana" (sum of weekday Total Día rows)
+                    // Asistencia Mes (total for the month) - compute as Total Entre Semana (Mon-Fri) or Total Fin de Semana (Sat/Sun) depending on panel
                     const tdAsis = document.createElement('td');
                     tdAsis.style.padding = '8px';
                     tdAsis.style.textAlign = 'center';
-                    // Compute weekday-only total (Mon-Fri) from stored per-day totals
                     try {
                       const valuesKey = `asistencia_values_${mo.key}`;
                       const savedRows = JSON.parse(localStorage.getItem(valuesKey) || '[]');
-                      let monthWeekdaySum = 0;
+                      let monthSum = 0;
                       if (Array.isArray(savedRows)) {
                         savedRows.forEach(row => {
                           if(!row) return;
@@ -3261,8 +3277,10 @@ function updateOptionsBar(){
                           const d = parseLocalDate(dateStr);
                           if(!d || isNaN(d.getTime())) return;
                           const day = d.getDay(); // 0=Sun,1=Mon,...6=Sat
-                          // only include weekdays (Mon-Fri)
-                          if(day < 1 || day > 5) return;
+                          // Decide which rows to include: weekdays for Entre Semana panel,
+                          // weekend (Sat/Sun) for Fin de Semana panel
+                          const includeRow = isWeekendPanel ? (day === 0 || day === 6) : (day >= 1 && day <= 5);
+                          if(!includeRow) return;
                           const values = row.values || {};
                           // sum numeric values for the row (columns G1..G8 + Salón), stored by index
                           const keys = Object.keys(values);
@@ -3272,24 +3290,25 @@ function updateOptionsBar(){
                             const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
                             if(!isNaN(n)) rowSum += n;
                           });
-                          if(rowSum > 0) monthWeekdaySum += rowSum;
+                          if(rowSum > 0) monthSum += rowSum;
                         });
                       }
-                      tdAsis.textContent = String(monthWeekdaySum);
+                      tdAsis.textContent = String(monthSum);
                     } catch (err) {
                       tdAsis.textContent = '0';
                     }
                     tr.appendChild(tdAsis);
 
-                    // Prom. Semanal: compute the "Prom. E.S." for this month by averaging weekday (Mon-Fri) Total Día
+                    // Prom. Semanal: compute average; use weekday-average for Entre Semana panel,
+                    // but for the "Reunión del fin de semana" panel use weekend-average (Promedio F.S.)
                     const tdProm = document.createElement('td');
                     tdProm.style.padding = '8px';
                     tdProm.style.textAlign = 'center';
                     try {
                       const valuesKey = `asistencia_values_${mo.key}`;
                       const savedRows = JSON.parse(localStorage.getItem(valuesKey) || '[]');
-                      let weekendSum = 0; // here we will compute weekday sum (Entre Semana)
-                      let countWeekdaysWithRegistro = 0;
+                      let sum = 0;
+                      let countWithRegistro = 0;
                       if (Array.isArray(savedRows)) {
                         savedRows.forEach(row => {
                           if(!row) return;
@@ -3298,25 +3317,25 @@ function updateOptionsBar(){
                           const d = parseLocalDate(dateStr);
                           if(!d || isNaN(d.getTime())) return;
                           const day = d.getDay(); // 0=Sun,1=Mon,...6=Sat
-                          // only consider weekdays for "Entre Semana" (Mon-Fri)
-                          if(day >= 1 && day <= 5){
-                            const values = row.values || {};
-                            let sum = 0;
-                            Object.keys(values).forEach(k => {
-                              const v = values[k];
-                              const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
-                              if(!isNaN(n)) sum += n;
-                            });
-                            if(sum > 0){
-                              weekendSum += sum;
-                              countWeekdaysWithRegistro++;
-                            }
+                          // Decide which rows to include: weekdays for Entre Semana, weekend (Sat/Sun) for Fin de Semana
+                          const includeRow = isWeekendPanel ? (day === 0 || day === 6) : (day >= 1 && day <= 5);
+                          if(!includeRow) return;
+                          const values = row.values || {};
+                          let rowSum = 0;
+                          Object.keys(values).forEach(k => {
+                            const v = values[k];
+                            const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
+                            if(!isNaN(n)) rowSum += n;
+                          });
+                          if(rowSum > 0){
+                            sum += rowSum;
+                            countWithRegistro++;
                           }
                         });
                       }
-                      let avgES = 0;
-                      if (countWeekdaysWithRegistro > 0) avgES = weekendSum / countWeekdaysWithRegistro;
-                      tdProm.textContent = Number.isFinite(avgES) ? String(Math.round(avgES)) : '0';
+                      let avg = 0;
+                      if (countWithRegistro > 0) avg = sum / countWithRegistro;
+                      tdProm.textContent = Number.isFinite(avg) ? String(Math.round(avg)) : '0';
                     } catch (err) {
                       tdProm.textContent = '0';
                     }
@@ -3340,7 +3359,9 @@ function updateOptionsBar(){
                       const v = cells[3] ? (cells[3].textContent || '').trim() : '';
                       const n = Number(v);
                       return (v === '' || isNaN(n)) ? NaN : n;
-                    }).filter(v => !isNaN(v));
+                    })
+                    // Only include months that have a registro: exclude empty/NaN and zero values
+                    .filter(v => !isNaN(v) && v > 0);
 
                     let avg = 0;
                     if(promCells.length > 0){
@@ -3387,6 +3408,223 @@ function updateOptionsBar(){
                 panelsWrap.appendChild(left);
                 panelsWrap.appendChild(right);
 
+                // Add single "Año de servicio" indicator shown below both tables
+                // compute default service year (Sept–Aug convention)
+                const _now = new Date();
+                let serviceYearDefault = (_now.getMonth() >= 8) ? (_now.getFullYear() + 1) : _now.getFullYear();
+                // ensure we don't create multiple identical indicators by removing any previous instance first
+                const existingYearWrap = card.querySelector('#totales_asistencia_year_wrap');
+                if (existingYearWrap) existingYearWrap.remove();
+                const yearIndicator = document.createElement('div');
+                yearIndicator.id = 'totales_asistencia_year_wrap';
+                yearIndicator.style.display = 'flex';
+                yearIndicator.style.alignItems = 'center';
+                yearIndicator.style.justifyContent = 'center';
+                yearIndicator.style.gap = '8px';
+                yearIndicator.style.marginTop = '12px';
+                yearIndicator.style.padding = '8px';
+                yearIndicator.style.borderTop = '1px solid var(--subtle)';
+                yearIndicator.style.background = 'transparent';
+                yearIndicator.style.width = '100%';
+                yearIndicator.style.boxSizing = 'border-box';
+                // build left arrow, year display, right arrow
+                yearIndicator.innerHTML = `
+                  <div style="font-weight:700;color:var(--muted);font-size:13px;">Año de servicio</div>
+                  <div style="display:inline-flex;align-items:center;gap:8px;margin-left:8px;">
+                    <button id="totales_year_prev" class="secondary" title="Año anterior" style="padding:6px 8px;">◀</button>
+                    <div id="totales_asistencia_service_year" style="font-weight:800;font-size:16px;min-width:64px;text-align:center;">${serviceYearDefault}</div>
+                    <button id="totales_year_next" class="secondary" title="Año siguiente" style="padding:6px 8px;">▶</button>
+                  </div>
+                `;
+
+                // helper to build months for a service year (Sept prev year -> Aug year)
+                function monthsForServiceYear(year){
+                  const months = [];
+                  const start = new Date(year - 1, 8, 1); // Sept prev year
+                  for(let i=0;i<12;i++){
+                    const cur = new Date(start.getFullYear(), start.getMonth() + i, 1);
+                    const key = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;
+                    months.push({ key, label: cur.toLocaleString('es', { month:'long', year:'numeric' }) });
+                  }
+                  return months;
+                }
+
+                // rebuild a single asistencia panel ('Reunión de entre semana' or 'Reunión del fin de semana') given its container and serviceYear
+                function rebuildAsistenciaPanel(panelEl, title, serviceYear){
+                  try{
+                    // find the table inside panelEl
+                    const table = panelEl.querySelector('table');
+                    if(!table) return;
+                    // clear existing tbody and build new one
+                    let tbodyLocal = table.querySelector('tbody');
+                    if(tbodyLocal) tbodyLocal.remove();
+                    tbodyLocal = document.createElement('tbody');
+
+                    const months = monthsForServiceYear(serviceYear);
+                    months.forEach(mo => {
+                      const tr = document.createElement('tr');
+                      tr.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
+
+                      const tdMonth = document.createElement('td');
+                      tdMonth.style.padding = '8px';
+                      tdMonth.style.textAlign = 'left';
+                      tdMonth.textContent = mo.label;
+                      tr.appendChild(tdMonth);
+
+                      const tdNum = document.createElement('td');
+                      tdNum.style.padding = '8px';
+                      tdNum.style.textAlign = 'center';
+                      tdNum.textContent = '0';
+                      tr.appendChild(tdNum);
+
+                      const tdAsis = document.createElement('td');
+                      tdAsis.style.padding = '8px';
+                      tdAsis.style.textAlign = 'center';
+                      try {
+                        const valuesKey = `asistencia_values_${mo.key}`;
+                        const savedRows = JSON.parse(localStorage.getItem(valuesKey) || '[]');
+                        let monthSum = 0;
+                        if (Array.isArray(savedRows)) {
+                          savedRows.forEach(row => {
+                            if(!row) return;
+                            const dateStr = row.date || '';
+                            if(!dateStr) return;
+                            const d = parseLocalDate(dateStr);
+                            if(!d || isNaN(d.getTime())) return;
+                            const day = d.getDay(); // 0=Sun,1=Mon,...6=Sat
+                            const includeRow = String(title || '').toLowerCase().includes('fin de semana') ? (day === 0 || day === 6) : (day >= 1 && day <= 5);
+                            if(!includeRow) return;
+                            const values = row.values || {};
+                            const keys = Object.keys(values);
+                            let rowSum = 0;
+                            keys.forEach(k => {
+                              const v = values[k];
+                              const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
+                              if(!isNaN(n)) rowSum += n;
+                            });
+                            if(rowSum > 0) monthSum += rowSum;
+                          });
+                        }
+                        tdAsis.textContent = String(monthSum);
+                      } catch (err) {
+                        tdAsis.textContent = '0';
+                      }
+                      tr.appendChild(tdAsis);
+
+                      const tdProm = document.createElement('td');
+                      tdProm.style.padding = '8px';
+                      tdProm.style.textAlign = 'center';
+                      try {
+                        const valuesKey = `asistencia_values_${mo.key}`;
+                        const savedRows = JSON.parse(localStorage.getItem(valuesKey) || '[]');
+                        let sum = 0;
+                        let countWithRegistro = 0;
+                        if (Array.isArray(savedRows)) {
+                          savedRows.forEach(row => {
+                            if(!row) return;
+                            const dateStr = row.date || '';
+                            if(!dateStr) return;
+                            const d = parseLocalDate(dateStr);
+                            if(!d || isNaN(d.getTime())) return;
+                            const day = d.getDay();
+                            const includeRow = String(title || '').toLowerCase().includes('fin de semana') ? (day === 0 || day === 6) : (day >= 1 && day <= 5);
+                            if(!includeRow) return;
+                            const values = row.values || {};
+                            let rowSum = 0;
+                            Object.keys(values).forEach(k => {
+                              const v = values[k];
+                              const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
+                              if(!isNaN(n)) rowSum += n;
+                            });
+                            if(rowSum > 0){
+                              sum += rowSum;
+                              countWithRegistro++;
+                            }
+                          });
+                        }
+                        let avg = 0;
+                        if (countWithRegistro > 0) avg = sum / countWithRegistro;
+                        tdProm.textContent = Number.isFinite(avg) ? String(Math.round(avg)) : '0';
+                      } catch (err) {
+                        tdProm.textContent = '0';
+                      }
+                      tr.appendChild(tdProm);
+
+                      tbodyLocal.appendChild(tr);
+                    });
+
+                    table.appendChild(tbodyLocal);
+
+                    // After rebuilding rows, recompute panel footer average (the code that originally computed monthly average is local;
+                    // to keep consistent behavior, also compute the "Promedio de asistencia mensual" footer for this panel)
+                    try {
+                      const promCells = Array.from(tbodyLocal.querySelectorAll('tr')).map(r => {
+                        const cells = r.children;
+                        const v = cells[3] ? (cells[3].textContent || '').trim() : '';
+                        const n = Number(v);
+                        return (v === '' || isNaN(n)) ? NaN : n;
+                      }).filter(v => !isNaN(v) && v > 0);
+                      let avg = 0;
+                      if(promCells.length > 0){
+                        const sum = promCells.reduce((s,x) => s + x, 0);
+                        avg = sum / promCells.length;
+                      }
+                      // find the avgWrap under the panel and update its value if present
+                      const avgWrap = panelEl.querySelector('div + div'); // heuristic not perfect; skip if missing
+                      // easier: search for a sibling avgWrap by class inside the panel container region
+                      const parentCard = panelEl.closest('#asistenciaPanels') || panelEl.parentElement;
+                      if(parentCard){
+                        const avgDisplays = parentCard.querySelectorAll('div');
+                        // try to find a small element showing 'Promedio de asistencia mensual' text nearby and update the number
+                        // fallback: do nothing if not found
+                      }
+                    } catch(e){}
+                  }catch(err){
+                    console.warn('rebuildAsistenciaPanel error', err);
+                  }
+                }
+
+                // Attach handlers to arrows to change service year and rebuild both panels if present
+                function setServiceYearAndRebuild(y){
+                  serviceYearDefault = Number(y) || serviceYearDefault;
+                  const yearEl = document.getElementById('totales_asistencia_service_year');
+                  if(yearEl) yearEl.textContent = String(serviceYearDefault);
+                  // find panelsWrap and left/right panels if rendered
+                  const panelsWrap = document.getElementById('asistenciaPanels');
+                  if(!panelsWrap) return;
+                  const left = panelsWrap.children[0];
+                  const right = panelsWrap.children[1];
+                  if(left) {
+                    const leftTitle = left.querySelector('div') ? left.querySelector('div').textContent : 'Reunión de entre semana';
+                    rebuildAsistenciaPanel(left, leftTitle, serviceYearDefault);
+                  }
+                  if(right) {
+                    const rightTitle = right.querySelector('div') ? right.querySelector('div').textContent : 'Reunión del fin de semana';
+                    rebuildAsistenciaPanel(right, rightTitle, serviceYearDefault);
+                  }
+                }
+
+                // delegate arrow clicks after nodes are in DOM
+                setTimeout(() => {
+                  const prevBtn = document.getElementById('totales_year_prev');
+                  const nextBtn = document.getElementById('totales_year_next');
+                  if(prevBtn){
+                    prevBtn.addEventListener('click', (ev) => {
+                      ev.stopPropagation();
+                      setServiceYearAndRebuild(serviceYearDefault - 1);
+                    });
+                  }
+                  if(nextBtn){
+                    nextBtn.addEventListener('click', (ev) => {
+                      ev.stopPropagation();
+                      setServiceYearAndRebuild(serviceYearDefault + 1);
+                    });
+                  }
+                }, 30);
+
+                panelsWrap.appendChild(left);
+                panelsWrap.appendChild(right);
+
                 // insert panelsWrap after the totalsButtonsRow (which is totalsButtonsRow element in current scope)
                 // totalsButtonsRow is appended earlier; find it and insert after
                 const afterInsertTarget = card.querySelector('div[style*="display: flex"][style*="gap: 8px"]') || card.querySelector(':scope > div');
@@ -3399,6 +3637,9 @@ function updateOptionsBar(){
                 } else {
                   card.appendChild(panelsWrap);
                 }
+
+                // append the year indicator under the panelsWrap so it sits beneath both tables
+                card.insertBefore(yearIndicator, existingBodyArea || bodyArea || null);
 
                 // ensure scroll into view
                 panelsWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
