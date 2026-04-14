@@ -3244,18 +3244,25 @@ function updateOptionsBar(){
                     tdNum.textContent = '0';
                     tr.appendChild(tdNum);
 
-                    // Asistencia Mes (total for the month) - compute from saved per-day totals if present
+                    // Asistencia Mes (total for the month) - compute as "Total Entre Semana" (sum of weekday Total Día rows)
                     const tdAsis = document.createElement('td');
                     tdAsis.style.padding = '8px';
                     tdAsis.style.textAlign = 'center';
-                    // Attempt to compute total month attendance from stored asistencia rows
+                    // Compute weekday-only total (Mon-Fri) from stored per-day totals
                     try {
                       const valuesKey = `asistencia_values_${mo.key}`;
                       const savedRows = JSON.parse(localStorage.getItem(valuesKey) || '[]');
-                      let monthSum = 0;
+                      let monthWeekdaySum = 0;
                       if (Array.isArray(savedRows)) {
                         savedRows.forEach(row => {
                           if(!row) return;
+                          const dateStr = row.date || '';
+                          if(!dateStr) return;
+                          const d = parseLocalDate(dateStr);
+                          if(!d || isNaN(d.getTime())) return;
+                          const day = d.getDay(); // 0=Sun,1=Mon,...6=Sat
+                          // only include weekdays (Mon-Fri)
+                          if(day < 1 || day > 5) return;
                           const values = row.values || {};
                           // sum numeric values for the row (columns G1..G8 + Salón), stored by index
                           const keys = Object.keys(values);
@@ -3265,10 +3272,10 @@ function updateOptionsBar(){
                             const n = (v === '' || v === null || typeof v === 'undefined') ? NaN : Number(String(v).trim());
                             if(!isNaN(n)) rowSum += n;
                           });
-                          if(rowSum > 0) monthSum += rowSum;
+                          if(rowSum > 0) monthWeekdaySum += rowSum;
                         });
                       }
-                      tdAsis.textContent = String(monthSum);
+                      tdAsis.textContent = String(monthWeekdaySum);
                     } catch (err) {
                       tdAsis.textContent = '0';
                     }
@@ -4864,7 +4871,7 @@ if(registroBtn){
 
 
 
-/* Export registry to a .json file */
+/* Export registry to a .json file (manual "Exportar" now saves full app state) */
 exportBtn.addEventListener('click', (ev) => {
   // hide menu after action if visible
   if(backupMenu && !backupMenu.classList.contains('hidden')){
@@ -4872,19 +4879,23 @@ exportBtn.addEventListener('click', (ev) => {
     if(backupBtn) backupBtn.setAttribute('aria-expanded','false');
   }
   try{
-    const blob = new Blob([JSON.stringify(people, null, 2)], { type: 'application/json' });
+    // Export the full application state (same structure used for Drive backups)
+    const state = getAppState();
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    // build filename: YYYY.MM.DD-HH.MM - RESPALDO REGISTRO.json
+    // build filename: YYYY.MM.DD-HH.MM - RESPALDO-REGPUB.json (match Drive naming style)
     const _d = new Date();
     const pad = (n) => String(n).padStart(2, '0');
-    const fileName = `${_d.getFullYear()}.${pad(_d.getMonth() + 1)}.${pad(_d.getDate())}-${pad(_d.getHours())}.${pad(_d.getMinutes())} - RESPALDO REGISTRO.json`;
+    const fileName = `${_d.getFullYear()}.${pad(_d.getMonth() + 1)}.${pad(_d.getDate())}-${pad(_d.getHours())}.${pad(_d.getMinutes())} - RESPALDO-REGPUB.json`;
     a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    // update last-loaded indicator with the exported filename
+    try{ setLastLoadedBackupName(fileName); }catch(e){}
   }catch(err){
     alert('Error al exportar: ' + (err && err.message ? err.message : err));
   }
@@ -7328,14 +7339,51 @@ function onGoogleUserLoggedIn(userData) {
 /* Funciones de estado de la app (plantilla) */
 function getAppState() {
   // Devuelve un objeto con el estado que se desea respaldar.
-  // Rellena aquí con los campos reales que quieras guardar más adelante.
-  // Ejemplo básico con la lista de personas y configuraciones visibles:
+  // Incluye la lista de personas y además todas las entradas de asistencia
+  // guardadas en localStorage con prefijo "asistencia_values_".
   try {
-    return {
+    const state = {
       timestamp: new Date().toISOString(),
       people: people || [],
-      activityMode: activityMode || false
+      activityMode: activityMode || false,
+      // include persisted UI prefs useful to restore view context
+      bannerTitle: (function(){ try{ return localStorage.getItem(BANNER_TITLE_KEY) || null; }catch(e){ return null; } })()
     };
+
+    // collect asistencia_values_* entries from localStorage
+    try {
+      const asistencia = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        if (key.startsWith('asistencia_values_')) {
+          try {
+            const raw = localStorage.getItem(key);
+            asistencia[key] = raw ? JSON.parse(raw) : null;
+          } catch (e) {
+            // if parse fails, keep raw string to avoid data loss
+            asistencia[key] = localStorage.getItem(key);
+          }
+        }
+      }
+      state.asistencia_values = asistencia;
+    } catch (e) {
+      console.warn('Error recopilando asistencia_values para respaldo', e);
+      state.asistencia_values = {};
+    }
+
+    // also persist relevant small keys (helpful when restoring)
+    try {
+      state.meta = {
+        lastLoadedBackup: (function(){ try{ return localStorage.getItem('last_loaded_backup_v1') || null; }catch(e){ return null; } })(),
+        jwReportLastMonth: (function(){ try{ return localStorage.getItem('jw_report_last_month_v1') || null; }catch(e){ return null; } })(),
+        asistenciaLastMonth: (function(){ try{ return localStorage.getItem('asistencia_last_month_v1') || null; }catch(e){ return null; } })()
+      };
+    } catch(e){
+      state.meta = {};
+    }
+
+    return state;
   } catch (err) {
     console.error("Error al obtener estado de la aplicación", err);
     return {};
