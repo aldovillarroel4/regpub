@@ -4223,8 +4223,7 @@ function updateOptionsBar(){
                   alert('Error construyendo Totales Prec. Auxiliares (ver consola).');
                 }
               } else if(idSuffix === 'prec_reg'){
-                // Build a "Totales Prec. Regulares" panel with 4 columns and 12 service-year months,
-                // computing real values for N° Informes, Horas and Estudios Bíblicos (matches Reporte JW logic).
+                // Build a "Totales Prec. Regulares" panel with 4 columns and 12 service-year months.
                 try {
                   // remove any previous panel of this type
                   const prevPanel = card.querySelector('#totales_prec_reg_panel');
@@ -4286,8 +4285,9 @@ function updateOptionsBar(){
                     months.push({ key, label });
                   }
 
-                  // helper: whether a given monthKey is a "mes con registros" (at least one person has hours >=1)
-                  function monthHasRecordsGlobal(monthKey){
+                  // For each month compute N° Informes, Horas and Estudios for Precursores Regulares
+                  // (criteria: Aux. Mes NOT active && numeric Hours > 1). If month has no global records, show zeros.
+                  function monthHasRecordsGlobal_prec(monthKey){
                     if(!monthKey) return false;
                     for(const p of people){
                       if(!p.activities) continue;
@@ -4300,10 +4300,6 @@ function updateOptionsBar(){
                     return false;
                   }
 
-                  // For each month compute N° Informes, Horas and Estudios Bíblicos for Precursores Regulares:
-                  // - Count persons where designation === 'Precursor Regular' AND in that month Aux. Mes is NOT active AND hours > 1 (numeric)
-                  // - Sum hours (numeric) for those persons
-                  // - Sum studies (numeric) for those persons
                   months.forEach(mo => {
                     const tr = document.createElement('tr');
                     tr.style.borderBottom = '1px solid rgba(15,23,42,0.03)';
@@ -4327,8 +4323,8 @@ function updateOptionsBar(){
                     tdCourses.style.textAlign = 'center';
 
                     try {
-                      // If no global records in this month, show zeros (consistent with other panels)
-                      if(!monthHasRecordsGlobal(mo.key)){
+                      // If the month has no global records, leave zeros
+                      if(!monthHasRecordsGlobal_prec(mo.key)){
                         tdNum.textContent = '0';
                         tdHours.textContent = '0';
                         tdCourses.textContent = '0';
@@ -4339,20 +4335,18 @@ function updateOptionsBar(){
 
                         people.forEach(p => {
                           if(!p.activities) return;
-                          // must be designated Precursor Regular
-                          if(String(p.designation || '').trim() !== 'Precursor Regular') return;
                           const act = p.activities[mo.key];
                           if(!act) return;
-                          // Aux. Mes must NOT be active for Precursores Regulares (per Reporte JW logic)
+                          // Precursor Regular counting: Aux must NOT be active, and hours numeric > 1
                           if(!!act.aux) return;
                           const hoursStr = (act.hours !== undefined && act.hours !== null) ? String(act.hours).trim() : '';
-                          const hNum = hoursStr === '' ? NaN : Number(hoursStr);
-                          if(!isNaN(hNum) && hNum > 1){
+                          const h = hoursStr === '' ? NaN : Number(hoursStr);
+                          if(hoursStr !== '' && !isNaN(h) && h > 1){
                             informesCount++;
-                            hoursSum += hNum;
+                            hoursSum += h;
                             const studiesStr = (act.studies !== undefined && act.studies !== null) ? String(act.studies).trim() : '';
-                            const s = Number(studiesStr);
-                            if(studiesStr !== '' && !isNaN(s)) studiesSum += s;
+                            const s = studiesStr === '' ? NaN : Number(studiesStr);
+                            if(!isNaN(s)) studiesSum += s;
                           }
                         });
 
@@ -4382,10 +4376,13 @@ function updateOptionsBar(){
                     let totalStudies = 0;
                     let monthsWithInforme = 0;
 
+                    // iterate the data rows to accumulate values (tbodyLocal rows correspond to months)
                     Array.from(tbodyLocal.querySelectorAll('tr')).forEach(r => {
-                      const num = Number((r.children[1] && r.children[1].textContent) ? r.children[1].textContent : 0) || 0;
-                      const hours = Number((r.children[2] && r.children[2].textContent) ? r.children[2].textContent : 0) || 0;
-                      const studies = Number((r.children[3] && r.children[3].textContent) ? r.children[3].textContent : 0) || 0;
+                      const cols = r.children;
+                      if(!cols || cols.length < 4) return;
+                      const num = Number((cols[1] && cols[1].textContent) ? cols[1].textContent : 0) || 0;
+                      const hours = Number((cols[2] && cols[2].textContent) ? cols[2].textContent : 0) || 0;
+                      const studies = Number((cols[3] && cols[3].textContent) ? cols[3].textContent : 0) || 0;
                       if(num > 0) monthsWithInforme++;
                       totalInformes += num;
                       totalHours += hours;
@@ -4447,10 +4444,10 @@ function updateOptionsBar(){
 
                   // insert panel into the Totales card body area (remove selection message if present)
                   const bodyArea = card.querySelector('div[style*="flex: 1 1 auto"]') || card.querySelector('div[style*="overflow: auto"]') || card.querySelector('div:nth-child(4)');
-                  const msgEl2 = document.getElementById('totales_select_message');
-                  if(msgEl2) msgEl2.remove();
+                  const msgEl = document.getElementById('totales_select_message');
+                  if(msgEl) msgEl.remove();
 
-                  // remove any other panels of same family (avoid duplicates stacking)
+                  // remove panels of other types to avoid stacking duplicates
                   const existingAsis = card.querySelector('#asistenciaPanels');
                   if(existingAsis) existingAsis.remove();
                   const existingPub = card.querySelector('#totales_publicadores_panel');
@@ -4459,7 +4456,6 @@ function updateOptionsBar(){
                   if(existingPrecAux) existingPrecAux.remove();
 
                   if(bodyArea){
-                    // insert at top of bodyArea
                     bodyArea.insertBefore(panel, bodyArea.firstChild || null);
                   } else {
                     card.appendChild(panel);
@@ -7270,14 +7266,6 @@ function renderActivityRowsFor(person, serviceYear){
     row.className = 'pp-row-act';
     const act = (person.activities && person.activities[m.key]) ? person.activities[m.key] : { aux:false, hours:'', studies:'', comments:'' };
 
-    // Determine whether this person's hours should be displayed:
-    // show hours when the person is a Precursor Regular,
-    // or when the month's Aux. Mes checkbox is active for that month.
-    // Additionally, if there exists a later month marked "Fin Precursorado Regular",
-    // months earlier than that fin month must preserve their hours (>1) visibility even if designation changed.
-    const designation = String(person.designation || '').trim();
-    const isPrecursor = (designation === 'Precursor Regular');
-
     // find earliest fin/start month (if any)
     let finMonth = '';
     let startMonth = '';
@@ -7298,11 +7286,14 @@ function renderActivityRowsFor(person, serviceYear){
     const monthKey = m.key;
     const isBeforeFin = ((startMonth && monthKey < startMonth) || (finMonth && monthKey < finMonth));
 
-    // show hours if precursor, or aux checked, or if this month is before a "Fin Precursorado Regular" and hours > 1
-    // BUT never show hours when the recorded value is exactly 1 (these must be hidden in the registro popup)
-    const _hoursValStr = String(act.hours || '').trim();
-    const _isExactlyOne = (_hoursValStr === '1' || Number(_hoursValStr) === 1);
-    const showHoursForMonth = !_isExactlyOne && (isPrecursor || !!act.aux || (isBeforeFin && act.hours !== '' && Number(act.hours) > 1));
+    // Determine if person should be considered "Precursor Regular" for THIS month solely by: hours>1 and aux not active
+    const hstr = (act.hours === undefined || act.hours === null) ? '' : String(act.hours).trim();
+    const hnum = hstr === '' ? NaN : Number(hstr);
+    const consideredPrecursorThisMonth = (!isNaN(hnum) && hnum > 1 && !act.aux);
+
+    // show hours when not exactly 1 and when considered precursor OR aux checked OR preserved before fin marker
+    const _isExactlyOne = (hstr === '1' || Number(hstr) === 1);
+    const showHoursForMonth = !_isExactlyOne && (consideredPrecursorThisMonth || !!act.aux || (isBeforeFin && hnum > 1));
 
     // Participation should reflect whether the record indicates participation:
     // consider participation true only when numeric hours > 0 (months with no hours show no check).
